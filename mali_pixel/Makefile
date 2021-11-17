@@ -11,11 +11,10 @@ KBUILD_OPTIONS += CONFIG_MALI_PRIORITY_CONTROL_MANAGER=m
 
 KBUILD_OPTIONS += $(KBUILD_EXTRA) # Extra config if any
 
-modules:
-	$(MAKE) -C $(KERNEL_SRC) M=$(M) W=1 EXTRA_CFLAGS="-I$(M) -I$(M)/../common/include" modules $(KBUILD_OPTIONS) $(@)
+EXTRA_CFLAGS += -I$(M)
+EXTRA_CFLAGS += -I$(M)/../common/include
 
-modules_install:
-	$(MAKE) -C $(KERNEL_SRC) M=$(M) modules_install
+include $(KERNEL_SRC)/../gs/kernel/device-modules/Makefile.include
 
-clean:
-	$(MAKE) -C $(KDIR) M=$(CURDIR) clean
+modules modules_install clean:
+	$(MAKE) -C $(KERNEL_SRC) M=$(M) W=1 $(KBUILD_OPTIONS) EXTRA_CFLAGS="$(EXTRA_CFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" $(@)
