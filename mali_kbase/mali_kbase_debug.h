@@ -88,7 +88,7 @@ struct kbasep_debug_assert_cb {
 #ifdef CONFIG_MALI_DEBUG
 #define KBASE_CALL_ASSERT_HOOK() kbasep_debug_assert_call_hook()
 #else
-#define KBASE_CALL_ASSERT_HOOK() CSTD_NOP()
+#define KBASE_CALL_ASSERT_HOOK()
 #endif
 
 /**
@@ -103,7 +103,7 @@ struct kbasep_debug_assert_cb {
 	KBASE_DEBUG_ASSERT_MSG(expr, #expr)
 
 #if KBASE_DEBUG_DISABLE_ASSERTS
-#define KBASE_DEBUG_ASSERT_MSG(expr, ...) CSTD_NOP()
+#define KBASE_DEBUG_ASSERT_MSG(expr, ...) CSTD_UNUSED(expr); CSTD_NOP(__VA_ARGS__)
 #else
 /**
  * KBASE_DEBUG_ASSERT_MSG() - Calls @ref KBASEP_DEBUG_ASSERT_OUT and prints the
@@ -131,7 +131,7 @@ struct kbasep_debug_assert_cb {
 #ifdef CONFIG_MALI_DEBUG
 #define KBASE_DEBUG_CODE(X) X
 #else
-#define KBASE_DEBUG_CODE(X) CSTD_NOP()
+#define KBASE_DEBUG_CODE(X) CSTD_NOP(X)
 #endif				/* CONFIG_MALI_DEBUG */
 
 /** @} */
