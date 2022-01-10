@@ -15,6 +15,7 @@
 /* SOC includes */
 #if IS_ENABLED(CONFIG_EXYNOS_PMU_IF)
 #include <soc/google/exynos-pmu-if.h>
+#include <soc/google/exynos-pd.h>
 #endif
 #if IS_ENABLED(CONFIG_CAL_IF)
 #include <soc/google/cal-if.h>
@@ -80,8 +81,7 @@ static int gpu_pm_power_on_cores(struct kbase_device *kbdev)
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 	gpu_dvfs_event_power_on(kbdev);
 #endif
-
-#if IS_ENABLED(CONFIG_GOOGLE_BCL)
+#if IS_ENABLED(CONFIG_GOOGLE_BCL) && !IS_ENABLED(CONFIG_SOC_GS201)
 	if (pc->pm.bcl_dev)
 		google_init_gpu_ratio(pc->pm.bcl_dev);
 #endif
@@ -119,14 +119,17 @@ static void gpu_pm_power_off_cores(struct kbase_device *kbdev)
 		pm_runtime_put_sync(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES]);
 		pc->pm.state = GPU_POWER_LEVEL_GLOBAL;
 
+
 		pm_runtime_mark_last_busy(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
 		pm_runtime_put_autosuspend(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
 
 		trace_gpu_power_state(ktime_get_ns() - start_ns,
 			GPU_POWER_LEVEL_STACKS, GPU_POWER_LEVEL_GLOBAL);
+
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 		gpu_dvfs_event_power_off(kbdev);
 #endif
+
 	}
 
 	mutex_unlock(&pc->pm.lock);
@@ -207,7 +210,7 @@ static void gpu_pm_callback_power_suspend(struct kbase_device *kbdev)
 	gpu_pm_power_off_cores(kbdev);
 }
 
-#ifdef KBASE_PM_RUNTIME
+#if IS_ENABLED(KBASE_PM_RUNTIME)
 
 /**
  * gpu_pm_callback_power_runtime_suspend() - Called when a TOP domain is going to runtime suspend
@@ -314,7 +317,7 @@ static void gpu_pm_callback_power_runtime_term(struct kbase_device *kbdev)
 	pm_runtime_disable(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
 }
 
-#endif /* KBASE_PM_RUNTIME */
+#endif /* IS_ENABLED(KBASE_PM_RUNTIME) */
 
 /*
  * struct pm_callbacks - Callbacks for linking to core Mali KMD power management
@@ -350,7 +353,7 @@ struct kbase_pm_callback_conf pm_callbacks = {
 	.power_on_callback = gpu_pm_callback_power_on,
 	.power_suspend_callback = gpu_pm_callback_power_suspend,
 	.power_resume_callback = NULL,
-#ifdef KBASE_PM_RUNTIME
+#if IS_ENABLED(KBASE_PM_RUNTIME)
 	.power_runtime_init_callback = gpu_pm_callback_power_runtime_init,
 	.power_runtime_term_callback = gpu_pm_callback_power_runtime_term,
 	.power_runtime_off_callback = NULL,
@@ -363,39 +366,11 @@ struct kbase_pm_callback_conf pm_callbacks = {
 	.power_runtime_on_callback = NULL,
 	.power_runtime_idle_callback = NULL,
 #endif /* KBASE_PM_RUNTIME */
-	.soft_reset_callback = NULL
+	.soft_reset_callback = NULL,
 };
 
 /**
- * gpu_pm_get_pm_cores_domain() - Find the GPU's power domain.
- *
- * @g3d_genpd_name: A string containing the name of the power domain
- *
- * Searches through the available power domains in device tree for one that
- * matched @g3d_genpd_name and returns it if found.
- *
- * Return: A pointer to the power domain if found, NULL otherwise.
- */
-static struct exynos_pm_domain *gpu_pm_get_pm_cores_domain(const char *g3d_genpd_name)
-{
-	struct device_node *np;
-	struct platform_device *pdev;
-	struct exynos_pm_domain *pd;
-
-	for_each_compatible_node(np, NULL, "samsung,exynos-pd") {
-		if (of_device_is_available(np)) {
-			pdev = of_find_device_by_node(np);
-			pd = (struct exynos_pm_domain *)platform_get_drvdata(pdev);
-			if (strcmp(g3d_genpd_name, (const char *)(pd->genpd.name)) == 0)
-				return pd;
-		}
-	}
-
-	return NULL;
-}
-
-/**
- * gpu_pm_get_power_state() - Returns the current power state of a GPU.
+ * gpu_pm_get_power_state() - Returns the current power state of the GPU.
  *
  * @kbdev: The &struct kbase_device for the GPU.
  *
@@ -507,9 +482,12 @@ int gpu_pm_init(struct kbase_device *kbdev)
 		goto error;
 	}
 
-	pc->pm.domain = gpu_pm_get_pm_cores_domain(g3d_power_domain_name);
-	if (pc->pm.domain == NULL)
+	pc->pm.domain = exynos_pd_lookup_name(g3d_power_domain_name);
+	if (pc->pm.domain == NULL) {
+		dev_err(kbdev->dev, "Failed to find GPU power domain '%s'\n",
+			g3d_power_domain_name);
 		return -ENODEV;
+	}
 
 #if IS_ENABLED(CONFIG_GOOGLE_BCL)
 	pc->pm.bcl_dev = google_retrieve_bcl_handle();

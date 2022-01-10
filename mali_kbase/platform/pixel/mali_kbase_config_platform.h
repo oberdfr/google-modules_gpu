@@ -45,7 +45,10 @@
  * Attached value: pointer to @ref kbase_clk_rate_trace_op_conf
  * Default value: See @ref kbase_clk_rate_trace_op_conf
  */
+#ifdef CONFIG_MALI_MIDGARD_DVFS
 #define CLK_RATE_TRACE_OPS (&pixel_clk_rate_trace_ops)
+extern struct kbase_clk_rate_trace_op_conf pixel_clk_rate_trace_ops;
+#endif
 
 /**
  * Platform specific configuration functions
@@ -56,7 +59,6 @@
 #define PLATFORM_FUNCS (&platform_funcs)
 
 extern struct kbase_pm_callback_conf pm_callbacks;
-extern struct kbase_clk_rate_trace_op_conf pixel_clk_rate_trace_ops;
 extern struct kbase_platform_funcs_conf platform_funcs;
 
 #ifdef CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING
@@ -87,7 +89,9 @@ extern struct protected_mode_ops pixel_protected_ops;
 #endif /* CONFIG_MALI_MIDGARD_DVFS */
 
 /* SOC level includes */
+#if IS_ENABLED(CONFIG_GOOGLE_BCL)
 #include <soc/google/bcl.h>
+#endif
 #if IS_ENABLED(CONFIG_EXYNOS_PD)
 #include <soc/google/exynos-pd.h>
 #endif
@@ -271,9 +275,9 @@ struct gpu_dvfs_metrics_uid_stats;
  * @dvfs.metrics.last_power_state: The GPU's power state when the DVFS metric logic was last run.
  * @dvfs.metrics.last_level:       The GPU's level when the DVFS metric logic was last run.
  * @dvfs.metrics.transtab:         Pointer to the DVFS transition table.
- * @dvfs.metrics.js_uid_stats:     An array of pointers to the per-UID stats blocks currently
- *                                 resident in each of the GPU's job slots. Access is controlled by
- *                                 the hwaccess lock.
+ * @dvfs.metrics.work_uid_stats:   An array of pointers to the per-UID stats blocks currently
+ *                                 resident in each of the GPU's job slots, or CSG slots.
+ *                                 Access is controlled by the dvfs.metrics.lock.
  * @dvfs.metrics.uid_stats_list:   List head pointer to the linked list of per-UID stats blocks.
  *                                 Modification to the linked list itself (not its elements) is
  *                                 protected by the kctx_list lock.
@@ -303,7 +307,6 @@ struct pixel_context {
 
 		struct device *domain_devs[GPU_PM_DOMAIN_COUNT];
 		struct device_link *domain_links[GPU_PM_DOMAIN_COUNT];
-
 		struct exynos_pm_domain *domain;
 		unsigned int status_reg_offset;
 		unsigned int status_local_power_mask;
@@ -328,8 +331,10 @@ struct pixel_context {
 		struct workqueue_struct *control_wq;
 		struct work_struct control_work;
 		atomic_t util;
+#if !MALI_USE_CSF
 		atomic_t util_gl;
 		atomic_t util_cl;
+#endif
 
 		struct workqueue_struct *clockdown_wq;
 		struct delayed_work clockdown_work;
@@ -354,11 +359,16 @@ struct pixel_context {
 		} governor;
 
 		struct {
+			spinlock_t lock;
 			u64 last_time;
 			bool last_power_state;
 			int last_level;
 			int *transtab;
-			struct gpu_dvfs_metrics_uid_stats *js_uid_stats[BASE_JM_MAX_NR_SLOTS];
+#if !MALI_USE_CSF
+			struct gpu_dvfs_metrics_uid_stats *work_uid_stats[BASE_JM_MAX_NR_SLOTS];
+#else
+			struct gpu_dvfs_metrics_uid_stats *work_uid_stats[MAX_SUPPORTED_CSGS];
+#endif /* !MALI_USE_CSF */
 			struct list_head uid_stats_list;
 		} metrics;
 

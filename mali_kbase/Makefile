@@ -36,14 +36,16 @@ endif
 # Core kbase configuration options
 CONFIG_MALI_EXPERT=y
 CONFIG_MALI_MIDGARD_DVFS=y
+ifneq ($(CONFIG_SOC_GS101),y)
+CONFIG_MALI_CSF_SUPPORT=y
+endif
 
 # Pixel integration specific configuration options
 CONFIG_MALI_PLATFORM_NAME="pixel"
-CONFIG_MALI_PIXEL_GPU_QOS=y
-CONFIG_MALI_PIXEL_GPU_BTS=y
-CONFIG_MALI_PIXEL_GPU_THERMAL=y
-CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING=y
-
+CONFIG_MALI_PIXEL_GPU_QOS ?= y
+CONFIG_MALI_PIXEL_GPU_BTS ?= y
+CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING ?= y
+CONFIG_MALI_PIXEL_GPU_THERMAL ?= y
 
 #
 # Default configuration values
@@ -75,7 +77,7 @@ ifeq ($(CONFIG_MALI_MIDGARD),m)
         CONFIG_MALI_DMA_BUF_LEGACY_COMPAT = n
     endif
 
-    ifeq ($(CONFIG_BSP_HAS_HYPERVISOR),y)
+    ifeq ($(CONFIG_XEN),y)
         ifneq ($(CONFIG_MALI_ARBITRATION), n)
             CONFIG_MALI_XEN ?= m
         endif

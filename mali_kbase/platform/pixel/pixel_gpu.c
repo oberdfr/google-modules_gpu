@@ -142,10 +142,8 @@ static int gpu_pixel_init(struct kbase_device *kbdev)
 	pc->kbdev = kbdev;
 
 	ret = gpu_pm_init(kbdev);
-	if (ret) {
-		dev_err(kbdev->dev, "power management init failed\n");
+	if (ret)
 		goto done;
-	}
 
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 	ret = gpu_dvfs_init(kbdev);
@@ -188,6 +186,6 @@ struct kbase_platform_funcs_conf platform_funcs = {
 	.platform_term_func = &gpu_pixel_term,
 	.platform_handler_context_init_func = &gpu_dvfs_kctx_init,
 	.platform_handler_context_term_func = &gpu_dvfs_kctx_term,
-	.platform_handler_atom_submit_func = &gpu_dvfs_metrics_job_start,
-	.platform_handler_atom_complete_func = &gpu_dvfs_metrics_job_end,
+	.platform_handler_work_begin_func = &gpu_dvfs_metrics_work_begin,
+	.platform_handler_work_end_func = &gpu_dvfs_metrics_work_end,
 };

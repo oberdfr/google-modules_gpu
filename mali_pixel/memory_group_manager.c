@@ -24,6 +24,9 @@
 
 #include <soc/google/pt.h>
 
+#define ORDER_SMALL_PAGE 0
+#define ORDER_LARGE_PAGE 9
+
 #define PBHA_BIT_POS  (36)
 #define PBHA_BIT_MASK (0xf)
 
@@ -94,6 +97,7 @@ struct mgm_group {
  * struct mgm_groups - Structure for groups of memory group manager
  *
  * @groups: To keep track of the number of allocated pages of all groups
+ * @ngroups: Number of groups actually used
  * @dev: device attached
  * @pt_handle: Link to SLC partition data
  * @kobj: &sruct kobject used for linking to pixel_stats_sysfs node
@@ -104,6 +108,7 @@ struct mgm_group {
  */
 struct mgm_groups {
 	struct mgm_group groups[MEMORY_GROUP_MANAGER_NR_GROUPS];
+	size_t ngroups;
 	struct device *dev;
 	struct pt_handle *pt_handle;
 	struct kobject kobj;
@@ -252,10 +257,9 @@ static int mgm_debugfs_init(struct mgm_groups *mgm_data)
 /*
  * Pixel Stats sysfs
  */
-extern struct kobject *pixel_stat_gpu_kobj;
+#ifdef CONFIG_MALI_PIXEL_STATS
 
-#define ORDER_SMALL_PAGE 0
-#define ORDER_LARGE_PAGE 9
+extern struct kobject *pixel_stat_gpu_kobj;
 
 #define MGM_ATTR_RO(_name) \
 	static struct kobj_attribute _name##_attr = __ATTR_RO(_name)
@@ -341,6 +345,19 @@ static void mgm_sysfs_term(struct mgm_groups *data)
 	kobject_put(&data->kobj);
 }
 
+#else /* CONFIG_MALI_PIXEL_STATS */
+
+static int mgm_sysfs_init(struct mgm_groups *data)
+{
+	return 0;
+}
+
+static void mgm_sysfs_term(struct mgm_groups *data)
+{}
+
+#endif /* CONFIG_MALI_PIXEL_STATS */
+
+
 static atomic64_t total_gpu_pages = ATOMIC64_INIT(0);
 
 static void update_size(struct memory_group_manager_device *mgm_dev, int
@@ -395,6 +412,10 @@ static struct page *mgm_alloc_page(
 		__func__, (void *)mgm_dev, group_id, gfp_mask, order);
 
 	if (INVALID_GROUP_ID(group_id))
+		return NULL;
+
+	if (WARN_ON_ONCE((group_id != MGM_RESERVED_GROUP_ID) &&
+			 (GROUP_ID_TO_PT_IDX(group_id) >= data->ngroups)))
 		return NULL;
 
 	/* We don't expect to be allocting pages into the group used for
@@ -595,6 +616,14 @@ static void mgm_resize_callback(void *data, int id, size_t size_allocated)
 static int mgm_initialize_data(struct mgm_groups *mgm_data)
 {
 	int i, ret;
+
+	const int ngroups = of_property_count_strings(mgm_data->dev->of_node, "pt_id");
+	if (WARN_ON(ngroups < 0) ||
+	    WARN_ON(ngroups > MEMORY_GROUP_MANAGER_NR_GROUPS)) {
+		mgm_data->ngroups = 0;
+	} else {
+		mgm_data->ngroups = ngroups;
+	}
 
 	for (i = 0; i < MEMORY_GROUP_MANAGER_NR_GROUPS; i++) {
 		atomic_set(&mgm_data->groups[i].size, 0);
