@@ -13,7 +13,7 @@
 #include <linux/platform_device.h>
 #include <linux/protected_memory_allocator.h>
 #include <linux/slab.h>
-#include <soc/samsung/exynos-smc.h>
+#include <linux/soc/samsung/exynos-smc.h>
 
 #define MALI_PMA_DMA_HEAP_NAME "vframe-secure"
 #define MALI_PMA_SLAB_SIZE (1 << 16)

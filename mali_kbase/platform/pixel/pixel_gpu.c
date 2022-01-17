@@ -174,7 +174,9 @@ static void gpu_pixel_term(struct kbase_device *kbdev)
 	struct pixel_context *pc = kbdev->platform_context;
 
 	gpu_sysfs_term(kbdev);
+#ifdef CONFIG_MALI_MIDGARD_DVFS
 	gpu_dvfs_term(kbdev);
+#endif /* CONFIG_MALI_MIDGARD_DVFS */
 	gpu_pm_term(kbdev);
 
 	kbdev->platform_context = NULL;
@@ -184,8 +186,10 @@ static void gpu_pixel_term(struct kbase_device *kbdev)
 struct kbase_platform_funcs_conf platform_funcs = {
 	.platform_init_func = &gpu_pixel_init,
 	.platform_term_func = &gpu_pixel_term,
+#ifdef CONFIG_MALI_MIDGARD_DVFS
 	.platform_handler_context_init_func = &gpu_dvfs_kctx_init,
 	.platform_handler_context_term_func = &gpu_dvfs_kctx_term,
 	.platform_handler_work_begin_func = &gpu_dvfs_metrics_work_begin,
 	.platform_handler_work_end_func = &gpu_dvfs_metrics_work_end,
+#endif /* CONFIG_MALI_MIDGARD_DVFS */
 };

@@ -45,7 +45,9 @@ enum gpu_dvfs_clk_index {
  */
 struct gpu_dvfs_clk {
 	enum gpu_dvfs_clk_index index;
+#if IS_ENABLED(CONFIG_CAL_IF)
 	int cal_id;
+#endif /* IS_ENABLED(CONFIG_CAL_IF) */
 	struct blocking_notifier_head notifier;
 };
 

@@ -380,14 +380,16 @@ struct kbase_pm_callback_conf pm_callbacks = {
  */
 bool gpu_pm_get_power_state(struct kbase_device *kbdev)
 {
-	bool ret;
+	bool ret = true;
 	unsigned int val = 0;
 	struct pixel_context *pc = kbdev->platform_context;
 
+#if IS_ENABLED(CONFIG_EXYNOS_PMU_IF)
 	mutex_lock(&pc->pm.domain->access_lock);
 	exynos_pmu_read(pc->pm.status_reg_offset, &val);
 	ret = ((val & pc->pm.status_local_power_mask) == pc->pm.status_local_power_mask);
 	mutex_unlock(&pc->pm.domain->access_lock);
+#endif /* CONFIG_EXYNOS_PMU_IF */
 
 	return ret;
 }
@@ -482,7 +484,9 @@ int gpu_pm_init(struct kbase_device *kbdev)
 		goto error;
 	}
 
+#if IS_ENABLED(CONFIG_EXYNOS_PMU_IF)
 	pc->pm.domain = exynos_pd_lookup_name(g3d_power_domain_name);
+#endif /* CONFIG_EXYNOS_PMU_IF */
 	if (pc->pm.domain == NULL) {
 		dev_err(kbdev->dev, "Failed to find GPU power domain '%s'\n",
 			g3d_power_domain_name);
