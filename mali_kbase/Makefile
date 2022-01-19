@@ -228,7 +228,7 @@ EXTRA_CFLAGS := $(foreach config,$(CONFIGS), \
                     $(if $(filter y m,$(value $(value config))), \
                         -D$(value config)=1))
 
-include $(KDIR)/../gs/kernel/device-modules/Makefile.include
+include $(KDIR)/../gs/google-modules/soc-modules/Makefile.include
 
 #
 # KBUILD_EXTRA_SYMBOLS to prevent warnings about unknown functions
