@@ -49,14 +49,14 @@
 #include <asm/arch_timer.h>
 
 #define MALI_MAX_FIRMWARE_NAME_LEN ((size_t)20)
-#define ACK_TIMEOUT_MILLISECONDS 1000
+#define ACK_TIMEOUT_MILLISECONDS (1000 * KBASE_TIMEOUT_MULTIPLIER)
 
 static char fw_name[MALI_MAX_FIRMWARE_NAME_LEN] = "mali_csffw.bin";
 module_param_string(fw_name, fw_name, sizeof(fw_name), 0644);
 MODULE_PARM_DESC(fw_name, "firmware image");
 
 /* The waiting time for firmware to boot */
-static unsigned int csf_firmware_boot_timeout_ms = 500;
+static unsigned int csf_firmware_boot_timeout_ms = (500 * KBASE_TIMEOUT_MULTIPLIER);
 module_param(csf_firmware_boot_timeout_ms, uint, 0444);
 MODULE_PARM_DESC(csf_firmware_boot_timeout_ms,
 		 "Maximum time to wait for firmware to boot.");

@@ -1987,7 +1987,7 @@ void kbase_pm_reset_complete(struct kbase_device *kbdev)
  * aborted due to a fatal signal. If the time spent waiting has exceeded this
  * threshold then there is most likely a hardware issue.
  */
-#define PM_TIMEOUT_MS (5000) /* 5s */
+#define PM_TIMEOUT_MS (5000 * KBASE_TIMEOUT_MULTIPLIER) /* 5s */
 
 static void kbase_pm_timed_out(struct kbase_device *kbdev)
 {

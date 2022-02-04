@@ -73,8 +73,13 @@
 
 #include "debug/mali_kbase_debug_ktrace_defs.h"
 
+/**
+ * Multiplier on kernel timeout constants, useful for emulation
+ */
+#define KBASE_TIMEOUT_MULTIPLIER (1)
+
 /** Number of milliseconds before we time out on a GPU soft/hard reset */
-#define RESET_TIMEOUT           500
+#define RESET_TIMEOUT           (500 * KBASE_TIMEOUT_MULTIPLIER)
 
 /**
  * The maximum number of Job Slots to support in the Hardware.

@@ -26,6 +26,7 @@
 #include "mali_kbase_csf_scheduler.h"
 #include "mali_kbase_csf_firmware.h"
 #include "mali_kbase_csf_protected_memory.h"
+#include <mali_kbase_defs.h>
 
 /* Indicate invalid CS h/w interface
  */
@@ -39,7 +40,7 @@
  */
 #define KBASEP_USER_DB_NR_INVALID ((s8)-1)
 
-#define FIRMWARE_PING_INTERVAL_MS (8000) /* 8 seconds */
+#define FIRMWARE_PING_INTERVAL_MS (8000 * KBASE_TIMEOUT_MULTIPLIER) /* 8 seconds */
 
 /* TODO(b/201222260): revisit value once interframe power off support is
  *                    enabled.

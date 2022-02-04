@@ -31,7 +31,7 @@
 #include <mali_kbase_reset_gpu.h>
 
 /* Waiting timeout for GPU reset to complete */
-#define GPU_RESET_TIMEOUT_MS (5000) /* 5 seconds */
+#define GPU_RESET_TIMEOUT_MS (5000 * KBASE_TIMEOUT_MULTIPLIER) /* 5 seconds */
 #define DUMP_DWORDS_PER_LINE (4)
 /* 16 characters needed for a 8 byte value in hex & 1 character for space */
 #define DUMP_HEX_CHARS_PER_DWORD ((2 * 8) + 1)
