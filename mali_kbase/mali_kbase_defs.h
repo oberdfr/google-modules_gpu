@@ -76,7 +76,7 @@
 /**
  * Multiplier on kernel timeout constants, useful for emulation
  */
-#define KBASE_TIMEOUT_MULTIPLIER (1)
+#define KBASE_TIMEOUT_MULTIPLIER (1000)
 
 /** Number of milliseconds before we time out on a GPU soft/hard reset */
 #define RESET_TIMEOUT           (500 * KBASE_TIMEOUT_MULTIPLIER)

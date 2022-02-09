@@ -253,6 +253,8 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 
 	if (!remaining)
 		dev_err(kbdev->dev, "Timed out waiting for fw boot completion");
+	else
+		dev_info(kbdev->dev, "Firmware boot completed");
 
 	kbdev->csf.interrupt_received = false;
 }
@@ -1929,6 +1931,7 @@ int kbase_csf_firmware_init(struct kbase_device *kbdev)
 		goto error;
 
 	/* Firmware loaded successfully */
+	dev_info(kbdev->dev, "Firmware load successful");
 	release_firmware(firmware);
 	KBASE_KTRACE_ADD(kbdev, FIRMWARE_BOOT, NULL,
 			(((u64)version_hash) << 32) |
