@@ -321,7 +321,9 @@ bool kbase_ctx_sched_inc_refcount_nolock(struct kbase_context *kctx)
 	as_nr = kctx->as_nr;
 #endif
 	if (atomic_read(&kctx->refcount) > 0) {
+#ifdef CONFIG_MALI_DEBUG
 		KBASE_DEBUG_ASSERT(as_nr >= 0);
+#endif
 
 		kbase_ctx_sched_retain_ctx_refcount(kctx);
 		KBASE_KTRACE_ADD(kctx->kbdev, SCHED_RETAIN_CTX_NOLOCK, kctx,
