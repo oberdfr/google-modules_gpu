@@ -232,6 +232,7 @@ static const enum base_hw_issue *kbase_hw_get_issues_for_new_id(
 
 		{ GPU_ID2_PRODUCT_TTUX,
 		  { { GPU_ID2_VERSION_MAKE(1, 0, 3), base_hw_issues_tTUx_r0p0 },
+		    { GPU_ID2_VERSION_MAKE(1, 1, 0), base_hw_issues_tTUx_r0p0 },
 		    { U32_MAX, NULL } } },
 
 		{ GPU_ID2_PRODUCT_LTUX,
