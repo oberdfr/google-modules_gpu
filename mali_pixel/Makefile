@@ -14,7 +14,7 @@ KBUILD_OPTIONS += $(KBUILD_EXTRA) # Extra config if any
 EXTRA_CFLAGS += -I$(M)
 EXTRA_CFLAGS += -I$(M)/../common/include
 
-include $(KERNEL_SRC)/../gs/google-modules/soc-modules/Makefile.include
+include $(KERNEL_SRC)/../private/google-modules/soc/gs/Makefile.include
 
 modules modules_install clean:
 	$(MAKE) -C $(KERNEL_SRC) M=$(M) W=1 $(KBUILD_OPTIONS) EXTRA_CFLAGS="$(EXTRA_CFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" $(@)
