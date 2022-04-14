@@ -245,15 +245,11 @@ EXTRA_CFLAGS := $(foreach config,$(CONFIGS), \
 
 EXTRA_CFLAGS += -DCONFIG_MALI_PLATFORM_NAME=$(CONFIG_MALI_PLATFORM_NAME)
 
+include $(KDIR)/../gs/google-modules/soc-modules/Makefile.include
+
 #
 # KBUILD_EXTRA_SYMBOLS to prevent warnings about unknown functions
 #
 
-all:
-	$(MAKE) -C $(KDIR) M=$(M) W=1 $(MAKE_ARGS) EXTRA_CFLAGS="$(EXTRA_CFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" modules
-
-modules_install:
-	$(MAKE) -C $(KDIR) M=$(M) W=1 $(MAKE_ARGS) modules_install
-
-clean:
-	$(MAKE) -C $(KDIR) M=$(M) W=1 $(MAKE_ARGS) clean
+modules modules_install clean:
+	$(MAKE) -C $(KDIR) M=$(M) W=1 $(MAKE_ARGS) EXTRA_CFLAGS="$(EXTRA_CFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" $(@)

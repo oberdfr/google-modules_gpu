@@ -1660,12 +1660,8 @@ int kbase_prepare_soft_job(struct kbase_jd_atom *katom)
 			if (copy_to_user((__user void *)(uintptr_t)katom->jc,
 					 &fence, sizeof(fence)) != 0) {
 				kbase_sync_fence_out_remove(katom);
-				/* fd should have been closed here, but there's
-				 * no good way of doing that. Since
-				 * copy_to_user() very rarely fails, and the fd
-				 * will get closed on process termination this
-				 * won't be a problem.
-				 */
+				put_unused_fd(fd);
+				fput(sync_file->file);
 				fence.basep.fd = -EINVAL;
 				return -EINVAL;
 			}
