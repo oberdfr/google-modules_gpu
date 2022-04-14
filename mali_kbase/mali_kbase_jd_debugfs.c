@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2014-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2014-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
  * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
+ * of such GNU license.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,11 +17,9 @@
  * along with this program; if not, you can access it online at
  * http://www.gnu.org/licenses/gpl-2.0.html.
  *
- * SPDX-License-Identifier: GPL-2.0
- *
  */
 
-#ifdef CONFIG_DEBUG_FS
+#if IS_ENABLED(CONFIG_DEBUG_FS)
 
 #include <linux/seq_file.h>
 #include <mali_kbase.h>
@@ -30,7 +28,7 @@
 #if defined(CONFIG_SYNC) || defined(CONFIG_SYNC_FILE)
 #include <mali_kbase_sync.h>
 #endif
-#include <mali_kbase_ioctl.h>
+#include <uapi/gpu/arm/midgard/mali_kbase_ioctl.h>
 
 struct kbase_jd_debugfs_depinfo {
 	u8 id;
@@ -48,13 +46,13 @@ static void kbase_jd_debugfs_fence_info(struct kbase_jd_atom *atom,
 	case BASE_JD_REQ_SOFT_FENCE_TRIGGER:
 		res = kbase_sync_fence_out_info_get(atom, &info);
 		if (res == 0)
-			seq_printf(sfile, "Sa([%p]%d) ",
+			seq_printf(sfile, "Sa([%pK]%d) ",
 				   info.fence, info.status);
 		break;
 	case BASE_JD_REQ_SOFT_FENCE_WAIT:
 		res = kbase_sync_fence_in_info_get(atom, &info);
 		if (res == 0)
-			seq_printf(sfile, "Wa([%p]%d) ",
+			seq_printf(sfile, "Wa([%pK]%d) ",
 				   info.fence, info.status);
 		break;
 	default:
@@ -76,8 +74,10 @@ static void kbase_jd_debugfs_fence_info(struct kbase_jd_atom *atom,
 			seq_printf(sfile,
 #if (KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE)
 				   "Sd(%u#%u: %s) ",
-#else
+#elif (KERNEL_VERSION(5, 1, 0) > LINUX_VERSION_CODE)
 				   "Sd(%llu#%u: %s) ",
+#else
+				   "Sd(%llu#%llu: %s) ",
 #endif
 				   fence->context, fence->seqno,
 				   dma_fence_is_signaled(fence) ? "signaled" :
@@ -95,8 +95,10 @@ static void kbase_jd_debugfs_fence_info(struct kbase_jd_atom *atom,
 			seq_printf(sfile,
 #if (KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE)
 				   "Wd(%u#%u: %s) ",
-#else
+#elif (KERNEL_VERSION(5, 1, 0) > LINUX_VERSION_CODE)
 				   "Wd(%llu#%u: %s) ",
+#else
+				   "Wd(%llu#%llu: %s) ",
 #endif
 				   fence->context, fence->seqno,
 				   dma_fence_is_signaled(fence) ? "signaled" :
@@ -115,7 +117,7 @@ static void kbasep_jd_debugfs_atom_deps(
 	int i;
 
 	for (i = 0; i < 2; i++)	{
-		deps[i].id = (unsigned)(atom->dep[i].atom ?
+		deps[i].id = (unsigned int)(atom->dep[i].atom ?
 				kbase_jd_atom_id(kctx, atom->dep[i].atom) : 0);
 
 		switch (atom->dep[i].dep_type) {
@@ -229,9 +231,9 @@ static const struct file_operations kbasep_jd_debugfs_atoms_fops = {
 void kbasep_jd_debugfs_ctx_init(struct kbase_context *kctx)
 {
 #if (KERNEL_VERSION(4, 7, 0) <= LINUX_VERSION_CODE)
-	const mode_t mode = S_IRUGO;
+	const mode_t mode = 0444;
 #else
-	const mode_t mode = S_IRUSR;
+	const mode_t mode = 0400;
 #endif
 
 	/* Caller already ensures this, but we keep the pattern for

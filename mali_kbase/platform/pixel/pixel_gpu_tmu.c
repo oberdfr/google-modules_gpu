@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright 2020 Google LLC.
+ * Copyright 2020-2021 Google LLC.
  *
  * Author: Sidath Senanayake <sidaths@google.com>
  */
@@ -18,7 +18,6 @@
 /* Pixel integration includes */
 #include "mali_kbase_config_platform.h"
 #include "pixel_gpu_control.h"
-#include "pixel_gpu_debug.h"
 #include "pixel_gpu_dvfs.h"
 
 /**
@@ -58,10 +57,10 @@ static int gpu_tmu_get_freqs_for_level(void *gpu_drv_data, int level, int *clk0,
 		return -1;
 
 	if (clk0)
-		*clk0 = pc->dvfs.table[level].clk0;
+		*clk0 = pc->dvfs.table[level].clk[GPU_DVFS_CLK_TOP_LEVEL];
 
 	if (clk1)
-		*clk1 = pc->dvfs.table[level].clk1;
+		*clk1 = pc->dvfs.table[level].clk[GPU_DVFS_CLK_SHADERS];
 
 	return 0;
 }
@@ -87,10 +86,10 @@ static int gpu_tmu_get_vols_for_level(void *gpu_drv_data, int level, int *vol0, 
 		return -1;
 
 	if (vol0)
-		*vol0 = pc->dvfs.table[level].vol0;
+		*vol0 = pc->dvfs.table[level].vol[GPU_DVFS_CLK_TOP_LEVEL];
 
 	if (vol1)
-		*vol1 = pc->dvfs.table[level].vol1;
+		*vol1 = pc->dvfs.table[level].vol[GPU_DVFS_CLK_SHADERS];
 
 	return 0;
 }
@@ -132,7 +131,7 @@ static int gpu_tmu_get_cur_util(void *gpu_drv_data)
 	struct pixel_context *pc = kbdev->platform_context;
 	int util = 0;
 
-	if (gpu_power_status(kbdev))
+	if (gpu_pm_get_power_state(kbdev))
 		util = atomic_read(&pc->dvfs.util);
 
 	return util;
@@ -192,34 +191,34 @@ static int gpu_tmu_notifier(struct notifier_block *notifier, unsigned long event
 
 	switch (event) {
 	case GPU_COLD:
-		GPU_LOG(LOG_DEBUG, kbdev, "%s: GPU_COLD event received\n", __func__);
+		dev_dbg(kbdev->dev, "%s: GPU_COLD event received\n", __func__);
 		level = pc->dvfs.level_max;
 		break;
 	case GPU_NORMAL:
-		GPU_LOG(LOG_DEBUG, kbdev, "%s: GPU_NORMAL event received\n", __func__);
+		dev_dbg(kbdev->dev, "%s: GPU_NORMAL event received\n", __func__);
 		level = pc->dvfs.level_max;
 		break;
 	case GPU_THROTTLING:
 		level = get_level_from_tmu_data(kbdev, nd->data);
 		if (level < 0) {
-			GPU_LOG(LOG_WARN, kbdev,
+			dev_warn(kbdev->dev,
 				"%s: GPU_THROTTLING event received with invalid level: %d\n",
 				__func__, nd->data);
 			return NOTIFY_BAD;
 		}
-		GPU_LOG(LOG_INFO, kbdev,
-			"%s: GPU_THROTTLING event received, limiting clocks to level %d\n",
-			__func__, nd->data);
+		dev_info(kbdev->dev,
+			"%s: GPU_THROTTLING event received limiting GPU clock to %d kHz\n",
+			__func__, pc->dvfs.table[level].clk[GPU_DVFS_CLK_SHADERS]);
 		break;
 	default:
-		GPU_LOG(LOG_WARN, kbdev, "%s: Unexpected TMU event received\n", __func__);
+		dev_warn(kbdev->dev, "%s: Unexpected TMU event received\n", __func__);
 		goto done;
 	}
 
 	/* Update the TMU lock level */
 	mutex_lock(&pc->dvfs.lock);
-	pc->dvfs.tmu.level_limit = level;
-	gpu_dvfs_update_level_locks(kbdev);
+	gpu_dvfs_update_level_lock(kbdev, GPU_DVFS_LEVEL_LOCK_THERMAL, -1, level);
+	gpu_dvfs_select_level(kbdev);
 	mutex_unlock(&pc->dvfs.lock);
 
 done:
@@ -246,7 +245,7 @@ int gpu_tmu_init(struct kbase_device *kbdev)
 	dev = gpufreq_cooling_register(np, kbdev, &tmu_query_fns);
 
 	if (IS_ERR(dev)) {
-		GPU_LOG(LOG_ERROR, kbdev,
+		dev_err(kbdev->dev,
 			"%s: Error when registering gpu as a cooling device\n", __func__);
 		return PTR_ERR(dev);
 	}

@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2015-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2015-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
  * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
+ * of such GNU license.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,8 +16,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, you can access it online at
  * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
  *
  */
 
@@ -128,6 +126,7 @@ static void kbase_mem_pool_sync_page(struct kbase_mem_pool *pool,
 		struct page *p)
 {
 	struct device *dev = pool->kbdev->dev;
+
 	dma_sync_single_for_device(dev, kbase_dma_addr(p),
 			(PAGE_SIZE << pool->order), DMA_BIDIRECTIONAL);
 }
@@ -311,7 +310,7 @@ void kbase_mem_pool_set_max_size(struct kbase_mem_pool *pool, size_t max_size)
 
 	kbase_mem_pool_unlock(pool);
 }
-
+KBASE_EXPORT_TEST_API(kbase_mem_pool_set_max_size);
 
 static unsigned long kbase_mem_pool_reclaim_count_objects(struct shrinker *s,
 		struct shrink_control *sc)
@@ -550,6 +549,7 @@ int kbase_mem_pool_alloc_pages(struct kbase_mem_pool *pool, size_t nr_4k_pages,
 	nr_from_pool = min(nr_pages_internal, kbase_mem_pool_size(pool));
 	while (nr_from_pool--) {
 		int j;
+
 		p = kbase_mem_pool_remove_locked(pool);
 		if (pool->order) {
 			pages[i++] = as_tagged_tag(page_to_phys(p),
@@ -806,8 +806,8 @@ void kbase_mem_pool_free_pages_locked(struct kbase_mem_pool *pool,
 		nr_to_pool = kbase_mem_pool_capacity(pool);
 		nr_to_pool = min(nr_pages, nr_to_pool);
 
-		kbase_mem_pool_add_array_locked(pool, nr_pages, pages, false,
-				dirty);
+		kbase_mem_pool_add_array_locked(pool, nr_to_pool, pages, false,
+						dirty);
 
 		i += nr_to_pool;
 	}

@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2016-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2016-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
  * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
+ * of such GNU license.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,8 +16,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, you can access it online at
  * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
  *
  */
 
@@ -73,7 +71,7 @@ KBASE_EXPORT_TEST_API(kbase_ipa_model_ops_find);
 
 const char *kbase_ipa_model_name_from_id(u32 gpu_id)
 {
-	const char* model_name =
+	const char *model_name =
 		kbase_ipa_counter_model_name_from_id(gpu_id);
 
 	if (!model_name)
@@ -398,7 +396,7 @@ static u32 kbase_scale_dynamic_power(const u32 c, const u32 freq,
  *
  * Return: Power consumption, in mW. Range: 0 < p < 2^13 (0W to ~8W)
  */
-u32 kbase_scale_static_power(const u32 c, const u32 voltage)
+static u32 kbase_scale_static_power(const u32 c, const u32 voltage)
 {
 	/* Range: 2^8 < v2 < 2^16 m(V^2) */
 	const u32 v2 = (voltage * voltage) / 1000;
@@ -479,6 +477,7 @@ static u32 get_static_power_locked(struct kbase_device *kbdev,
 	return power;
 }
 
+#if KERNEL_VERSION(5, 10, 0) > LINUX_VERSION_CODE
 #if defined(CONFIG_MALI_PWRSOFT_765) ||                                        \
 	KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE
 static unsigned long kbase_get_static_power(struct devfreq *df,
@@ -513,6 +512,7 @@ static unsigned long kbase_get_static_power(unsigned long voltage)
 
 	return power;
 }
+#endif /* KERNEL_VERSION(5, 10, 0) > LINUX_VERSION_CODE */
 
 /**
  * opp_translate_freq_voltage() - Translate nominal OPP frequency from
@@ -537,20 +537,7 @@ static void opp_translate_freq_voltage(struct kbase_device *kbdev,
 				       unsigned long *freqs,
 				       unsigned long *volts)
 {
-#ifndef CONFIG_MALI_NO_MALI
-	u64 core_mask;
-
-	kbase_devfreq_opp_translate(kbdev, nominal_freq, &core_mask,
-				    freqs, volts);
-	CSTD_UNUSED(core_mask);
-
-	if (kbdev->nr_clocks == 1) {
-		freqs[KBASE_IPA_BLOCK_TYPE_SHADER_CORES] =
-			freqs[KBASE_IPA_BLOCK_TYPE_TOP_LEVEL];
-		volts[KBASE_IPA_BLOCK_TYPE_SHADER_CORES] =
-			volts[KBASE_IPA_BLOCK_TYPE_TOP_LEVEL];
-	}
-#else
+#if IS_ENABLED(CONFIG_MALI_NO_MALI)
 	/* An arbitrary voltage and frequency value can be chosen for testing
 	 * in no mali configuration which may not match with any OPP level.
 	 */
@@ -559,9 +546,28 @@ static void opp_translate_freq_voltage(struct kbase_device *kbdev,
 
 	freqs[KBASE_IPA_BLOCK_TYPE_SHADER_CORES] = nominal_freq;
 	volts[KBASE_IPA_BLOCK_TYPE_SHADER_CORES] = nominal_voltage;
+#else
+	u64 core_mask;
+	unsigned int i;
+
+	kbase_devfreq_opp_translate(kbdev, nominal_freq, &core_mask,
+				    freqs, volts);
+	CSTD_UNUSED(core_mask);
+
+	/* Convert micro volts to milli volts */
+	for (i = 0; i < kbdev->nr_clocks; i++)
+		volts[i] /= 1000;
+
+	if (kbdev->nr_clocks == 1) {
+		freqs[KBASE_IPA_BLOCK_TYPE_SHADER_CORES] =
+			freqs[KBASE_IPA_BLOCK_TYPE_TOP_LEVEL];
+		volts[KBASE_IPA_BLOCK_TYPE_SHADER_CORES] =
+			volts[KBASE_IPA_BLOCK_TYPE_TOP_LEVEL];
+	}
 #endif
 }
 
+#if KERNEL_VERSION(5, 10, 0) > LINUX_VERSION_CODE
 #if defined(CONFIG_MALI_PWRSOFT_765) ||                                        \
 	KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE
 static unsigned long kbase_get_dynamic_power(struct devfreq *df,
@@ -604,7 +610,7 @@ static unsigned long kbase_get_dynamic_power(unsigned long freq,
 
 		/* Here unlike kbase_get_real_power(), shader core frequency is
 		 * used for the scaling as simple power model is used to obtain
-		 * the value of dynamic coefficient (which is is a fixed value
+		 * the value of dynamic coefficient (which is a fixed value
 		 * retrieved from the device tree).
 		 */
 		power += kbase_scale_dynamic_power(
@@ -625,6 +631,7 @@ static unsigned long kbase_get_dynamic_power(unsigned long freq,
 
 	return power;
 }
+#endif /* KERNEL_VERSION(5, 10, 0) > LINUX_VERSION_CODE */
 
 int kbase_get_real_power_locked(struct kbase_device *kbdev, u32 *power,
 				unsigned long freq,
@@ -725,8 +732,10 @@ int kbase_get_real_power(struct devfreq *df, u32 *power,
 KBASE_EXPORT_TEST_API(kbase_get_real_power);
 
 struct devfreq_cooling_power kbase_ipa_power_model_ops = {
+#if KERNEL_VERSION(5, 10, 0) > LINUX_VERSION_CODE
 	.get_static_power = &kbase_get_static_power,
 	.get_dynamic_power = &kbase_get_dynamic_power,
+#endif /* KERNEL_VERSION(5, 10, 0) > LINUX_VERSION_CODE */
 #if defined(CONFIG_MALI_PWRSOFT_765) ||                                        \
 	KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE
 	.get_real_power = &kbase_get_real_power,

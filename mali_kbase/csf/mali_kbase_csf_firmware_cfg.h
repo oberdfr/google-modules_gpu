@@ -1,27 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  *
- * (C) COPYRIGHT ARM Limited. All rights reserved.
- *
- * This program is free software and is provided to you under the terms of the
- * GNU General Public License version 2 as published by the Free Software
- * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, you can access it online at
- * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
- *
- *//* SPDX-License-Identifier: GPL-2.0 */
-/*
- *
- * (C) COPYRIGHT 2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2020-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -52,11 +32,11 @@
  * kbase_csf_firmware_cfg_init - Create the sysfs directory for configuration
  *                               options present in firmware image.
  *
+ * @kbdev: Pointer to the Kbase device
+ *
  * This function would create a sysfs directory and populate it with a
  * sub-directory, that would contain a file per attribute, for every
  * configuration option parsed from firmware image.
- *
- * @kbdev: Pointer to the Kbase device
  *
  * Return: The initialization error code.
  */
@@ -75,17 +55,20 @@ void kbase_csf_firmware_cfg_term(struct kbase_device *kbdev);
  * kbase_csf_firmware_cfg_option_entry_parse() - Process a
  *                                               "configuration option" section.
  *
+ * @kbdev:     Kbase device structure
+ * @fw:        Firmware image containing the section
+ * @entry:     Pointer to the section
+ * @size:      Size (in bytes) of the section
+ * @updatable: Indicates if entry can be updated with FIRMWARE_CONFIG_UPDATE
+ *
  * Read a "configuration option" section adding it to the
  * kbase_device:csf.firmware_config list.
  *
  * Return: 0 if successful, negative error code on failure
- *
- * @kbdev: Kbase device structure
- * @fw:    Firmware image containing the section
- * @entry: Pointer to the section
- * @size:  Size (in bytes) of the section
  */
 int kbase_csf_firmware_cfg_option_entry_parse(struct kbase_device *kbdev,
-		const struct firmware *fw,
-		const u32 *entry, unsigned int size);
+					      const struct firmware *fw,
+					      const u32 *entry,
+					      unsigned int size,
+					      bool updatable);
 #endif /* _KBASE_CSF_FIRMWARE_CFG_H_ */

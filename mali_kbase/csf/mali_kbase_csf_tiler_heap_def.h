@@ -1,27 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  *
- * (C) COPYRIGHT ARM Limited. All rights reserved.
- *
- * This program is free software and is provided to you under the terms of the
- * GNU General Public License version 2 as published by the Free Software
- * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, you can access it online at
- * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
- *
- *//* SPDX-License-Identifier: GPL-2.0 */
-/*
- *
- * (C) COPYRIGHT 2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2020-2022 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -79,18 +59,18 @@
 /**
  * struct kbase_csf_tiler_heap_chunk - A tiler heap chunk managed by the kernel
  *
- * Chunks are allocated upon initialization of a tiler heap or in response to
- * out-of-memory events from the firmware. Chunks are always fully backed by
- * physical memory to avoid the overhead of processing GPU page faults. The
- * allocated GPU memory regions are linked together independent of the list of
- * kernel objects of this type.
- *
  * @link:   Link to this chunk in a list of chunks belonging to a
  *          @kbase_csf_tiler_heap.
  * @region: Pointer to the GPU memory region allocated for the chunk.
  * @gpu_va: GPU virtual address of the start of the memory region.
  *          This points to the header of the chunk and not to the low address
  *          of free memory within it.
+ *
+ * Chunks are allocated upon initialization of a tiler heap or in response to
+ * out-of-memory events from the firmware. Chunks are always fully backed by
+ * physical memory to avoid the overhead of processing GPU page faults. The
+ * allocated GPU memory regions are linked together independent of the list of
+ * kernel objects of this type.
  */
 struct kbase_csf_tiler_heap_chunk {
 	struct list_head link;

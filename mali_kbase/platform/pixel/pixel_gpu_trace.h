@@ -6,25 +6,6 @@
 #ifndef _PIXEL_GPU_TRACE_H_
 #define _PIXEL_GPU_TRACE_H_
 
-enum gpu_power_state {
-	/* Mali GPUs have a hierarchy of power domains, which must be powered up
-	 * in order and powered down in reverse order. Individual architectures
-	 * and implementations may not allow each domain to be powered up or
-	 * down independently of the others.
-	 *
-	 * The power state can thus be defined as the highest-level domain that
-	 * is currently powered on.
-	 *
-	 * GLOBAL: The frontend (JM, CSF), including registers.
-	 * COREGROUP: The L2 and AXI interface, Tiler, and MMU.
-	 * STACKS: The shader cores.
-	 */
-	GPU_POWER_LEVEL_OFF		    = 0,
-	GPU_POWER_LEVEL_GLOBAL		= 1,
-	GPU_POWER_LEVEL_COREGROUP	= 2,
-	GPU_POWER_LEVEL_STACKS		= 3,
-};
-
 #endif /* _PIXEL_GPU_TRACE_H_ */
 
 #undef TRACE_SYSTEM
@@ -33,7 +14,11 @@ enum gpu_power_state {
 #if !defined(_TRACE_PIXEL_GPU_H) || defined(TRACE_HEADER_MULTI_READ)
 #define _TRACE_PIXEL_GPU_H
 
+/* Linux includes */
 #include <linux/tracepoint.h>
+
+/* Pixel integration includes */
+#include "mali_kbase_config_platform.h"
 
 #define GPU_POWER_STATE_SYMBOLIC_STRINGS \
 	{GPU_POWER_LEVEL_STACKS,	"STACKS"}, \
@@ -60,27 +45,6 @@ TRACE_EVENT(gpu_power_state,
 		__entry->change_ns
 	)
 );
-
-TRACE_EVENT(tracing_mark_write,
-	TP_PROTO(char type, int pid, const char *name, int value),
-	TP_ARGS(type, pid, name, value),
-	TP_STRUCT__entry(
-		__field(char, type)
-		__field(int, pid)
-		__string(name, name)
-		__field(int, value)
-	),
-	TP_fast_assign(
-		__entry->type = type;
-		__entry->pid = pid;
-		__assign_str(name, name);
-		__entry->value = value;
-	),
-	TP_printk("%c|%d|%s|%d",
-		__entry->type, __entry->pid, __get_str(name), __entry->value)
-);
-
-#define GPU_ATRACE_INT(name, value) trace_tracing_mark_write('C', current->tgid, name, value)
 
 #endif /* _TRACE_PIXEL_GPU_H */
 

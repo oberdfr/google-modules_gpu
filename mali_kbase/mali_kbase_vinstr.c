@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2011-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2011-2022 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
  * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
+ * of such GNU license.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,16 +17,15 @@
  * along with this program; if not, you can access it online at
  * http://www.gnu.org/licenses/gpl-2.0.html.
  *
- * SPDX-License-Identifier: GPL-2.0
- *
  */
 
 #include "mali_kbase_vinstr.h"
 #include "mali_kbase_hwcnt_virtualizer.h"
 #include "mali_kbase_hwcnt_types.h"
-#include "mali_kbase_hwcnt_reader.h"
+#include <uapi/gpu/arm/midgard/mali_kbase_hwcnt_reader.h>
 #include "mali_kbase_hwcnt_gpu.h"
-#include "mali_kbase_ioctl.h"
+#include "mali_kbase_hwcnt_gpu_narrow.h"
+#include <uapi/gpu/arm/midgard/mali_kbase_ioctl.h>
 #include "mali_malisw.h"
 #include "mali_kbase_debug.h"
 
@@ -55,6 +54,10 @@
  *                               counters.
  * @hvirt:         Hardware counter virtualizer used by vinstr.
  * @metadata:      Hardware counter metadata provided by virtualizer.
+ * @metadata_user: API compatible hardware counter metadata provided by vinstr.
+ *                 For compatibility with the user driver interface, this
+ *                 contains a narrowed version of the HWCNT metadata limited
+ *                 to 64 entries per block of 32 bits each.
  * @lock:          Lock protecting all vinstr state.
  * @suspend_count: Suspend reference count. If non-zero, timer and worker are
  *                 prevented from being re-scheduled.
@@ -66,6 +69,7 @@
 struct kbase_vinstr_context {
 	struct kbase_hwcnt_virtualizer *hvirt;
 	const struct kbase_hwcnt_metadata *metadata;
+	const struct kbase_hwcnt_metadata_narrow *metadata_user;
 	struct mutex lock;
 	size_t suspend_count;
 	size_t client_count;
@@ -86,8 +90,8 @@ struct kbase_vinstr_context {
  *                     occur. If 0, not a periodic client.
  * @enable_map:        Counters enable map.
  * @tmp_buf:           Temporary buffer to use before handing dump to client.
- * @dump_bufs:         Array of dump buffers allocated by this client.
- * @dump_bufs_meta:    Metadata of dump buffers.
+ * @dump_bufs:         Array of narrow dump buffers allocated by this client.
+ * @dump_bufs_meta:    Metadata of hwcnt reader client buffers.
  * @meta_idx:          Index of metadata being accessed by userspace.
  * @read_idx:          Index of buffer read by userspace.
  * @write_idx:         Index of buffer being written by dump worker.
@@ -101,7 +105,7 @@ struct kbase_vinstr_client {
 	u32 dump_interval_ns;
 	struct kbase_hwcnt_enable_map enable_map;
 	struct kbase_hwcnt_dump_buffer tmp_buf;
-	struct kbase_hwcnt_dump_buffer_array dump_bufs;
+	struct kbase_hwcnt_dump_buffer_narrow_array dump_bufs;
 	struct kbase_hwcnt_reader_metadata *dump_bufs_meta;
 	atomic_t meta_idx;
 	atomic_t read_idx;
@@ -187,7 +191,7 @@ static int kbasep_vinstr_client_dump(
 	unsigned int write_idx;
 	unsigned int read_idx;
 	struct kbase_hwcnt_dump_buffer *tmp_buf;
-	struct kbase_hwcnt_dump_buffer *dump_buf;
+	struct kbase_hwcnt_dump_buffer_narrow *dump_buf;
 	struct kbase_hwcnt_reader_metadata *meta;
 	u8 clk_cnt;
 
@@ -219,9 +223,12 @@ static int kbasep_vinstr_client_dump(
 	/* Copy the temp buffer to the userspace visible buffer. The strict
 	 * variant will explicitly zero any non-enabled counters to ensure
 	 * nothing except exactly what the user asked for is made visible.
+	 *
+	 * A narrow copy is required since virtualizer has a bigger buffer
+	 * but user only needs part of it.
 	 */
-	kbase_hwcnt_dump_buffer_copy_strict(
-		dump_buf, tmp_buf, &vcli->enable_map);
+	kbase_hwcnt_dump_buffer_copy_strict_narrow(dump_buf, tmp_buf,
+						   &vcli->enable_map);
 
 	clk_cnt = vcli->vctx->metadata->clk_cnt;
 
@@ -350,6 +357,8 @@ static void kbasep_vinstr_dump_worker(struct work_struct *work)
  * kbasep_vinstr_dump_timer() - Dump timer that schedules the dump worker for
  *                              execution as soon as possible.
  * @timer: Timer structure.
+ *
+ * Return: HRTIMER_NORESTART always.
  */
 static enum hrtimer_restart kbasep_vinstr_dump_timer(struct hrtimer *timer)
 {
@@ -376,7 +385,7 @@ static void kbasep_vinstr_client_destroy(struct kbase_vinstr_client *vcli)
 
 	kbase_hwcnt_virtualizer_client_destroy(vcli->hvcli);
 	kfree(vcli->dump_bufs_meta);
-	kbase_hwcnt_dump_buffer_array_free(&vcli->dump_bufs);
+	kbase_hwcnt_dump_buffer_narrow_array_free(&vcli->dump_bufs);
 	kbase_hwcnt_dump_buffer_free(&vcli->tmp_buf);
 	kbase_hwcnt_enable_map_free(&vcli->enable_map);
 	kfree(vcli);
@@ -424,6 +433,9 @@ static int kbasep_vinstr_client_create(
 	phys_em.mmu_l2_bm = setup->mmu_l2_bm;
 	kbase_hwcnt_gpu_enable_map_from_physical(&vcli->enable_map, &phys_em);
 
+	/* Use virtualizer's metadata to alloc tmp buffer which interacts with
+	 * the HWC virtualizer.
+	 */
 	errcode = kbase_hwcnt_dump_buffer_alloc(vctx->metadata, &vcli->tmp_buf);
 	if (errcode)
 		goto error;
@@ -431,8 +443,11 @@ static int kbasep_vinstr_client_create(
 	/* Enable all the available clk_enable_map. */
 	vcli->enable_map.clk_enable_map = (1ull << vctx->metadata->clk_cnt) - 1;
 
-	errcode = kbase_hwcnt_dump_buffer_array_alloc(
-		vctx->metadata, setup->buffer_count, &vcli->dump_bufs);
+	/* Use vinstr's narrowed metadata to alloc narrow dump buffers which
+	 * interact with clients.
+	 */
+	errcode = kbase_hwcnt_dump_buffer_narrow_array_alloc(
+		vctx->metadata_user, setup->buffer_count, &vcli->dump_bufs);
 	if (errcode)
 		goto error;
 
@@ -460,6 +475,7 @@ int kbase_vinstr_init(
 	struct kbase_hwcnt_virtualizer *hvirt,
 	struct kbase_vinstr_context **out_vctx)
 {
+	int errcode;
 	struct kbase_vinstr_context *vctx;
 	const struct kbase_hwcnt_metadata *metadata;
 
@@ -476,6 +492,10 @@ int kbase_vinstr_init(
 
 	vctx->hvirt = hvirt;
 	vctx->metadata = metadata;
+	errcode = kbase_hwcnt_gpu_metadata_narrow_create(&vctx->metadata_user,
+							 metadata);
+	if (errcode)
+		goto err_metadata_create;
 
 	mutex_init(&vctx->lock);
 	INIT_LIST_HEAD(&vctx->clients);
@@ -485,6 +505,11 @@ int kbase_vinstr_init(
 
 	*out_vctx = vctx;
 	return 0;
+
+err_metadata_create:
+	kfree(vctx);
+
+	return errcode;
 }
 
 void kbase_vinstr_term(struct kbase_vinstr_context *vctx)
@@ -504,6 +529,8 @@ void kbase_vinstr_term(struct kbase_vinstr_context *vctx)
 			kbasep_vinstr_client_destroy(pos);
 		}
 	}
+
+	kbase_hwcnt_gpu_metadata_narrow_destroy(vctx->metadata_user);
 
 	WARN_ON(vctx->client_count != 0);
 	kfree(vctx);
@@ -889,22 +916,24 @@ static long kbasep_vinstr_hwcnt_reader_ioctl_get_hwver(
 }
 
 /**
- * The hwcnt reader's ioctl command - get API version.
+ * kbasep_vinstr_hwcnt_reader_ioctl_get_api_version() - get API version ioctl
+ *                                                      command.
  * @cli:    The non-NULL pointer to the client
  * @arg:    Command's argument.
  * @size:   Size of arg.
  *
- * @return 0 on success, else error code.
+ * Return: 0 on success, else error code.
  */
 static long kbasep_vinstr_hwcnt_reader_ioctl_get_api_version(
 	struct kbase_vinstr_client *cli, unsigned long arg, size_t size)
 {
 	long ret = -EINVAL;
-	u8 clk_cnt = cli->vctx->metadata->clk_cnt;
 
 	if (size == sizeof(u32)) {
 		ret = put_user(HWCNT_READER_API, (u32 __user *)arg);
 	} else if (size == sizeof(struct kbase_hwcnt_reader_api_version)) {
+		u8 clk_cnt = cli->vctx->metadata->clk_cnt;
+		unsigned long bytes = 0;
 		struct kbase_hwcnt_reader_api_version api_version = {
 			.version = HWCNT_READER_API,
 			.features = KBASE_HWCNT_READER_API_VERSION_NO_FEATURE,
@@ -917,8 +946,16 @@ static long kbasep_vinstr_hwcnt_reader_ioctl_get_api_version(
 			api_version.features |=
 			    KBASE_HWCNT_READER_API_VERSION_FEATURE_CYCLES_SHADER_CORES;
 
-		ret = copy_to_user(
+		bytes = copy_to_user(
 			(void __user *)arg, &api_version, sizeof(api_version));
+
+		/* copy_to_user returns zero in case of success.
+		 * If it fails, it returns the number of bytes that could NOT be copied
+		 */
+		if (bytes == 0)
+			ret = 0;
+		else
+			ret = -EFAULT;
 	}
 	return ret;
 }
@@ -956,9 +993,8 @@ static long kbasep_vinstr_hwcnt_reader_ioctl(
 			cli, (u32 __user *)arg);
 		break;
 	case _IOC_NR(KBASE_HWCNT_READER_GET_BUFFER_SIZE):
-		rcode = put_user(
-			(u32)cli->vctx->metadata->dump_buf_bytes,
-			(u32 __user *)arg);
+		rcode = put_user((u32)cli->vctx->metadata_user->dump_buf_bytes,
+				 (u32 __user *)arg);
 		break;
 	case _IOC_NR(KBASE_HWCNT_READER_DUMP):
 		rcode = kbasep_vinstr_hwcnt_reader_ioctl_dump(cli);
@@ -1044,7 +1080,16 @@ static int kbasep_vinstr_hwcnt_reader_mmap(
 		return -EINVAL;
 
 	vm_size = vma->vm_end - vma->vm_start;
-	size = cli->dump_bufs.buf_cnt * cli->vctx->metadata->dump_buf_bytes;
+
+	/* The mapping is allowed to span the entirety of the page allocation,
+	 * not just the chunk where the dump buffers are allocated.
+	 * This accommodates the corner case where the combined size of the
+	 * dump buffers is smaller than a single page.
+	 * This does not pose a security risk as the pages are zeroed on
+	 * allocation, and anything out of bounds of the dump buffers is never
+	 * written to.
+	 */
+	size = (1ull << cli->dump_bufs.page_order) * PAGE_SIZE;
 
 	if (vma->vm_pgoff > (size >> PAGE_SHIFT))
 		return -EINVAL;

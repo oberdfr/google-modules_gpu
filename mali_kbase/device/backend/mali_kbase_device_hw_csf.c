@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2020-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
  * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
+ * of such GNU license.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,8 +16,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, you can access it online at
  * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
  *
  */
 
@@ -55,7 +53,7 @@ static void kbase_report_gpu_fault(struct kbase_device *kbdev, u32 status,
 	kbase_mmu_gpu_fault_interrupt(kbdev, status, as_nr, address, as_valid);
 }
 
-static bool kbase_gpu_fault_interrupt(struct kbase_device *kbdev)
+static void kbase_gpu_fault_interrupt(struct kbase_device *kbdev)
 {
 	const u32 status = kbase_reg_read(kbdev,
 			GPU_CONTROL_REG(GPU_FAULTSTATUS));
@@ -64,43 +62,32 @@ static bool kbase_gpu_fault_interrupt(struct kbase_device *kbdev)
 			GPU_FAULTSTATUS_JASID_SHIFT;
 	bool bus_fault = (status & GPU_FAULTSTATUS_EXCEPTION_TYPE_MASK) ==
 			GPU_FAULTSTATUS_EXCEPTION_TYPE_GPU_BUS_FAULT;
-	bool clear_gpu_fault = true;
 
 	if (bus_fault) {
 		/* If as_valid, reset gpu when ASID is for MCU. */
 		if (!as_valid || (as_nr == MCU_AS_NR)) {
 			kbase_report_gpu_fault(kbdev, status, as_nr, as_valid);
 
-			/* MCU bus fault could mean hardware counters will stop
-			 * working.
-			 * Put the backend into the unrecoverable error state to
-			 * cause current and subsequent counter operations to
-			 * immediately fail, avoiding the risk of a hang.
-			 */
-			kbase_hwcnt_backend_csf_on_unrecoverable_error(
-				&kbdev->hwcnt_gpu_iface);
-
 			dev_err(kbdev->dev, "GPU bus fault triggering gpu-reset ...\n");
-			if (kbase_prepare_to_reset_gpu(kbdev))
+			if (kbase_prepare_to_reset_gpu(
+				    kbdev, RESET_FLAGS_HWC_UNRECOVERABLE_ERROR))
 				kbase_reset_gpu(kbdev);
 		} else {
 			/* Handle Bus fault */
 			if (kbase_mmu_bus_fault_interrupt(kbdev, status, as_nr))
-				clear_gpu_fault = false;
+				dev_warn(kbdev->dev,
+					 "fail to handle GPU bus fault ...\n");
 		}
 	} else
 		kbase_report_gpu_fault(kbdev, status, as_nr, as_valid);
 
-	return clear_gpu_fault;
 }
 
 void kbase_gpu_interrupt(struct kbase_device *kbdev, u32 val)
 {
-	bool clear_gpu_fault = false;
-
 	KBASE_KTRACE_ADD(kbdev, CORE_GPU_IRQ, NULL, val);
 	if (val & GPU_FAULT)
-		clear_gpu_fault = kbase_gpu_fault_interrupt(kbdev);
+		kbase_gpu_fault_interrupt(kbdev);
 
 	if (val & GPU_PROTECTED_FAULT) {
 		struct kbase_csf_scheduler *scheduler = &kbdev->csf.scheduler;
@@ -131,28 +118,41 @@ void kbase_gpu_interrupt(struct kbase_device *kbdev, u32 val)
 			scheduler->active_protm_grp->faulted = true;
 			kbase_csf_add_group_fatal_error(
 				scheduler->active_protm_grp, &err_payload);
-			kbase_event_wakeup(scheduler->active_protm_grp->kctx);
+			kbase_event_wakeup_nosync(scheduler->active_protm_grp->kctx);
 		}
 		kbase_csf_scheduler_spin_unlock(kbdev, flags);
 
-		/* Protected fault means we're unlikely to have the counter
-		 * operations we might do during reset acknowledged.
-		 * Put the backend into the unrecoverable error state to cause
-		 * current and subsequent counter operations to immediately
-		 * fail, avoiding the risk of a hang.
-		 */
-		kbase_hwcnt_backend_csf_on_unrecoverable_error(
-			&kbdev->hwcnt_gpu_iface);
-
-		if (kbase_prepare_to_reset_gpu(kbdev))
+		if (kbase_prepare_to_reset_gpu(
+			    kbdev, RESET_FLAGS_HWC_UNRECOVERABLE_ERROR))
 			kbase_reset_gpu(kbdev);
+
+		/* Defer the clearing to the GPU reset sequence */
+		val &= ~GPU_PROTECTED_FAULT;
 	}
 
 	if (val & RESET_COMPLETED)
 		kbase_pm_reset_done(kbdev);
 
-	KBASE_KTRACE_ADD(kbdev, CORE_GPU_IRQ_CLEAR, NULL, val);
-	kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_CLEAR), val);
+	/* Defer clearing CLEAN_CACHES_COMPLETED to kbase_clean_caches_done.
+	 * We need to acquire hwaccess_lock to avoid a race condition with
+	 * kbase_gpu_cache_flush_and_busy_wait
+	 */
+	KBASE_KTRACE_ADD(kbdev, CORE_GPU_IRQ_CLEAR, NULL, val & ~CLEAN_CACHES_COMPLETED);
+	kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_CLEAR), val & ~CLEAN_CACHES_COMPLETED);
+
+#ifdef KBASE_PM_RUNTIME
+	if (val & DOORBELL_MIRROR) {
+		unsigned long flags;
+
+		dev_dbg(kbdev->dev, "Doorbell mirror interrupt received");
+		spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
+		WARN_ON(!kbase_csf_scheduler_get_nr_active_csgs(kbdev));
+		kbase_pm_disable_db_mirror_interrupt(kbdev);
+		kbdev->pm.backend.exit_gpu_sleep_mode = true;
+		kbase_csf_scheduler_invoke_tick(kbdev);
+		spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
+	}
+#endif
 
 	/* kbase_pm_check_transitions (called by kbase_pm_power_changed) must
 	 * be called after the IRQ has been cleared. This is because it might
@@ -180,14 +180,62 @@ void kbase_gpu_interrupt(struct kbase_device *kbdev, u32 val)
 			kbase_pm_power_changed(kbdev);
 	}
 
-	if (clear_gpu_fault) {
-		unsigned long flags;
-
-		spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
-		kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_COMMAND),
-				GPU_COMMAND_CLEAR_FAULT);
-		spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
-	}
-
 	KBASE_KTRACE_ADD(kbdev, CORE_GPU_IRQ_DONE, NULL, val);
 }
+
+#if !IS_ENABLED(CONFIG_MALI_NO_MALI)
+static bool kbase_is_register_accessible(u32 offset)
+{
+#ifdef CONFIG_MALI_DEBUG
+	if (((offset >= MCU_SUBSYSTEM_BASE) && (offset < IPA_CONTROL_BASE)) ||
+	    ((offset >= GPU_CONTROL_MCU_BASE) && (offset < USER_BASE))) {
+		WARN(1, "Invalid register offset 0x%x", offset);
+		return false;
+	}
+#endif
+
+	return true;
+}
+
+void kbase_reg_write(struct kbase_device *kbdev, u32 offset, u32 value)
+{
+	KBASE_DEBUG_ASSERT(kbdev->pm.backend.gpu_powered);
+	KBASE_DEBUG_ASSERT(kbdev->dev != NULL);
+
+	if (!kbase_is_register_accessible(offset))
+		return;
+
+	writel(value, kbdev->reg + offset);
+
+#if IS_ENABLED(CONFIG_DEBUG_FS)
+	if (unlikely(kbdev->io_history.enabled))
+		kbase_io_history_add(&kbdev->io_history, kbdev->reg + offset,
+				     value, 1);
+#endif /* CONFIG_DEBUG_FS */
+	dev_dbg(kbdev->dev, "w: reg %08x val %08x", offset, value);
+}
+KBASE_EXPORT_TEST_API(kbase_reg_write);
+
+u32 kbase_reg_read(struct kbase_device *kbdev, u32 offset)
+{
+	u32 val;
+
+	KBASE_DEBUG_ASSERT(kbdev->pm.backend.gpu_powered);
+	KBASE_DEBUG_ASSERT(kbdev->dev != NULL);
+
+	if (!kbase_is_register_accessible(offset))
+		return 0;
+
+	val = readl(kbdev->reg + offset);
+
+#if IS_ENABLED(CONFIG_DEBUG_FS)
+	if (unlikely(kbdev->io_history.enabled))
+		kbase_io_history_add(&kbdev->io_history, kbdev->reg + offset,
+				     val, 0);
+#endif /* CONFIG_DEBUG_FS */
+	dev_dbg(kbdev->dev, "r: reg %08x val %08x", offset, val);
+
+	return val;
+}
+KBASE_EXPORT_TEST_API(kbase_reg_read);
+#endif /* !IS_ENABLED(CONFIG_MALI_NO_MALI) */

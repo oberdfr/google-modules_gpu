@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2018, 2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2018, 2020-2022 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
  * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
+ * of such GNU license.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,8 +16,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, you can access it online at
  * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
  *
  */
 
@@ -160,7 +158,6 @@ int kbase_hwcnt_context_init(
 
 	return 0;
 
-	destroy_workqueue(hctx->wq);
 err_alloc_workqueue:
 	kfree(hctx);
 err_alloc_hctx:
@@ -353,7 +350,7 @@ static void kbasep_hwcnt_accumulator_enable(struct kbase_hwcnt_context *hctx)
  *                                   values of enabled counters possible, and
  *                                   optionally update the set of enabled
  *                                   counters.
- * @hctx :       Non-NULL pointer to the hardware counter context
+ * @hctx:        Non-NULL pointer to the hardware counter context
  * @ts_start_ns: Non-NULL pointer where the start timestamp of the dump will
  *               be written out to on success
  * @ts_end_ns:   Non-NULL pointer where the end timestamp of the dump will
@@ -364,6 +361,8 @@ static void kbasep_hwcnt_accumulator_enable(struct kbase_hwcnt_context *hctx)
  * @new_map:     Pointer to the new counter enable map. If non-NULL, must have
  *               the same metadata as the accumulator. If NULL, the set of
  *               enabled counters will be unchanged.
+ *
+ * Return:       0 on success, else error code.
  */
 static int kbasep_hwcnt_accumulator_dump(
 	struct kbase_hwcnt_context *hctx,

@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2017-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2017-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
  * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
+ * of such GNU license.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,14 +17,15 @@
  * along with this program; if not, you can access it online at
  * http://www.gnu.org/licenses/gpl-2.0.html.
  *
- * SPDX-License-Identifier: GPL-2.0
- *
  */
 
 #include <mali_kbase.h>
 #include <mali_kbase_defs.h>
 #include "mali_kbase_ctx_sched.h"
 #include "tl/mali_kbase_tracepoints.h"
+#if !MALI_USE_CSF
+#include <mali_kbase_hwaccess_jm.h>
+#endif
 
 /* Helper for ktrace */
 #if KBASE_KTRACE_ENABLE
@@ -126,7 +127,6 @@ int kbase_ctx_sched_retain_ctx(struct kbase_context *kctx)
 						kbdev, prev_kctx->id);
 					prev_kctx->as_nr = KBASEP_AS_NR_INVALID;
 				}
-
 				kctx->as_nr = free_as;
 				kbdev->as_to_kctx[free_as] = kctx;
 				KBASE_TLSTREAM_TL_KBASE_CTX_ASSIGN_AS(
@@ -175,6 +175,9 @@ void kbase_ctx_sched_release_ctx(struct kbase_context *kctx)
 			kbdev->as_to_kctx[kctx->as_nr] = NULL;
 			kctx->as_nr = KBASEP_AS_NR_INVALID;
 			kbase_ctx_flag_clear(kctx, KCTX_AS_DISABLED_ON_FAULT);
+#if !MALI_USE_CSF
+			kbase_backend_slot_kctx_purge_locked(kbdev, kctx);
+#endif
 		}
 	}
 
@@ -310,14 +313,12 @@ struct kbase_context *kbase_ctx_sched_as_to_ctx_nolock(
 bool kbase_ctx_sched_inc_refcount_nolock(struct kbase_context *kctx)
 {
 	bool result = false;
-	int as_nr;
 
 	if (WARN_ON(kctx == NULL))
 		return result;
 
 	lockdep_assert_held(&kctx->kbdev->hwaccess_lock);
 
-	as_nr = kctx->as_nr;
 	if (atomic_read(&kctx->refcount) > 0) {
 		KBASE_DEBUG_ASSERT(as_nr >= 0);
 
@@ -367,8 +368,7 @@ void kbase_ctx_sched_release_ctx_lock(struct kbase_context *kctx)
 }
 
 #if MALI_USE_CSF
-bool kbase_ctx_sched_refcount_mmu_flush(struct kbase_context *kctx,
-					bool sync)
+bool kbase_ctx_sched_inc_refcount_if_as_valid(struct kbase_context *kctx)
 {
 	struct kbase_device *kbdev;
 	bool added_ref = false;
@@ -385,20 +385,16 @@ bool kbase_ctx_sched_refcount_mmu_flush(struct kbase_context *kctx,
 	mutex_lock(&kbdev->mmu_hw_mutex);
 	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
 
-	added_ref = kbase_ctx_sched_inc_refcount_nolock(kctx);
+	if ((kctx->as_nr != KBASEP_AS_NR_INVALID) &&
+	    (kctx == kbdev->as_to_kctx[kctx->as_nr])) {
+		atomic_inc(&kctx->refcount);
 
-	WARN_ON(added_ref &&
-		(kctx->mmu_flush_pend_state != KCTX_MMU_FLUSH_NOT_PEND));
+		if (kbdev->as_free & (1u << kctx->as_nr))
+			kbdev->as_free &= ~(1u << kctx->as_nr);
 
-	if (!added_ref && (kctx->as_nr != KBASEP_AS_NR_INVALID)) {
-		enum kbase_ctx_mmu_flush_pending_state new_state =
-					sync ? KCTX_MMU_FLUSH_PEND_SYNC :
-					       KCTX_MMU_FLUSH_PEND_NO_SYNC;
-
-		WARN_ON(kctx != kbdev->as_to_kctx[kctx->as_nr]);
-
-		if (kctx->mmu_flush_pend_state != KCTX_MMU_FLUSH_PEND_SYNC)
-			kctx->mmu_flush_pend_state = new_state;
+		KBASE_KTRACE_ADD(kbdev, SCHED_RETAIN_CTX_NOLOCK, kctx,
+				 kbase_ktrace_get_ctx_refcnt(kctx));
+		added_ref = true;
 	}
 
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);

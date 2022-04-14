@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2019-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2019-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
  * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
+ * of such GNU license.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,15 +17,15 @@
  * along with this program; if not, you can access it online at
  * http://www.gnu.org/licenses/gpl-2.0.html.
  *
- * SPDX-License-Identifier: GPL-2.0
- *
  */
 
-#include "../mali_kbase_tracepoints.h"
-#include "../mali_kbase_timeline.h"
-#include "../mali_kbase_timeline_priv.h"
+#include <tl/mali_kbase_tracepoints.h>
+#include <tl/mali_kbase_timeline.h>
+#include <tl/mali_kbase_timeline_priv.h>
 
 #include <mali_kbase.h>
+
+#define GPU_FEATURES_CROSS_STREAM_SYNC_MASK (1ull << 3ull)
 
 void kbase_create_timeline_objects(struct kbase_device *kbdev)
 {
@@ -35,6 +35,21 @@ void kbase_create_timeline_objects(struct kbase_device *kbdev)
 	struct kbase_timeline *timeline = kbdev->timeline;
 	struct kbase_tlstream *summary =
 		&kbdev->timeline->streams[TL_STREAM_TYPE_OBJ_SUMMARY];
+	u32 const kbdev_has_cross_stream_sync =
+		(kbdev->gpu_props.props.raw_props.gpu_features &
+		 GPU_FEATURES_CROSS_STREAM_SYNC_MASK) ?
+			1 :
+			0;
+	u32 const arch_maj = (kbdev->gpu_props.props.raw_props.gpu_id &
+			      GPU_ID2_ARCH_MAJOR) >>
+			     GPU_ID2_ARCH_MAJOR_SHIFT;
+	u32 const num_sb_entries = arch_maj >= 11 ? 16 : 8;
+	u32 const supports_gpu_sleep =
+#ifdef KBASE_PM_RUNTIME
+		kbdev->pm.backend.gpu_sleep_supported;
+#else
+		false;
+#endif /* KBASE_PM_RUNTIME */
 
 	/* Summarize the Address Space objects. */
 	for (as_nr = 0; as_nr < kbdev->nr_hw_address_spaces; as_nr++)
@@ -53,10 +68,11 @@ void kbase_create_timeline_objects(struct kbase_device *kbdev)
 				kbdev);
 
 	/* Trace the creation of a new kbase device and set its properties. */
-	__kbase_tlstream_tl_kbase_new_device(summary,
-		kbdev->gpu_props.props.raw_props.gpu_id,
-		kbdev->gpu_props.num_cores, kbdev->csf.global_iface.group_num,
-		kbdev->nr_hw_address_spaces);
+	__kbase_tlstream_tl_kbase_new_device(summary, kbdev->gpu_props.props.raw_props.gpu_id,
+					     kbdev->gpu_props.num_cores,
+					     kbdev->csf.global_iface.group_num,
+					     kbdev->nr_hw_address_spaces, num_sb_entries,
+					     kbdev_has_cross_stream_sync, supports_gpu_sleep);
 
 	/* Lock the context list, to ensure no changes to the list are made
 	 * while we're summarizing the contexts and their contents.
@@ -76,9 +92,10 @@ void kbase_create_timeline_objects(struct kbase_device *kbdev)
 			kbdev->csf.scheduler.csg_slots[slot_i].resident_group;
 
 		if (group)
-			__kbase_tlstream_tl_kbase_device_program_csg(summary,
+			__kbase_tlstream_tl_kbase_device_program_csg(
+				summary,
 				kbdev->gpu_props.props.raw_props.gpu_id,
-				group->handle, slot_i);
+				group->kctx->id, group->handle, slot_i, 0);
 	}
 
 	/* Reset body stream buffers while holding the kctx lock.
@@ -147,7 +164,7 @@ void kbase_create_timeline_objects(struct kbase_device *kbdev)
 
 			if (kcpu_queue)
 				__kbase_tlstream_tl_kbase_new_kcpuqueue(
-					body, kcpu_queue, kcpu_queue->kctx->id,
+					body, kcpu_queue, kcpu_queue->id, kcpu_queue->kctx->id,
 					kcpu_queue->num_pending_cmds);
 		}
 
@@ -161,7 +178,7 @@ void kbase_create_timeline_objects(struct kbase_device *kbdev)
 		 * this iteration of the loop, so will start to correctly update
 		 * the object model state.
 		 */
-	};
+	}
 
 	mutex_unlock(&timeline->tl_kctx_list_lock);
 

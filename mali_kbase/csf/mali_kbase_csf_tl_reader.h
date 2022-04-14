@@ -1,27 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  *
- * (C) COPYRIGHT ARM Limited. All rights reserved.
- *
- * This program is free software and is provided to you under the terms of the
- * GNU General Public License version 2 as published by the Free Software
- * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, you can access it online at
- * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
- *
- *//* SPDX-License-Identifier: GPL-2.0 */
-/*
- *
- * (C) COPYRIGHT 2019-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2019-2022 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -46,13 +26,13 @@
 #include <linux/timer.h>
 #include <asm/page.h>
 
-/** The number of pages used for CSFFW trace buffer. Can be tweaked. */
+/* The number of pages used for CSFFW trace buffer. Can be tweaked. */
 #define KBASE_CSF_TL_BUFFER_NR_PAGES 128
-/** CSFFW Timeline read polling minimum period in milliseconds. */
+/* CSFFW Timeline read polling minimum period in milliseconds. */
 #define KBASE_CSF_TL_READ_INTERVAL_MIN 20
-/** CSFFW Timeline read polling default period in milliseconds. */
+/* CSFFW Timeline read polling default period in milliseconds. */
 #define KBASE_CSF_TL_READ_INTERVAL_DEFAULT 200
-/** CSFFW Timeline read polling maximum period in milliseconds. */
+/* CSFFW Timeline read polling maximum period in milliseconds. */
 #define KBASE_CSF_TL_READ_INTERVAL_MAX (60*1000)
 
 struct firmware_trace_buffer;
@@ -60,11 +40,11 @@ struct kbase_tlstream;
 struct kbase_device;
 
 /**
- * System timestamp to CPU timestamp converter state.
+ * struct kbase_ts_converter - System timestamp to CPU timestamp converter state.
  *
- * @multiplier:	Numerator of the converter's fraction.
- * @divisor:	Denominator of the converter's fraction.
- * @offset:	Converter's offset term.
+ * @multiplier:		Numerator of the converter's fraction.
+ * @divisor:		Denominator of the converter's fraction.
+ * @offset:		Converter's offset term.
  *
  * According to Generic timer spec, system timer:
  * - Increments at a fixed frequency
@@ -99,6 +79,7 @@ struct kbase_ts_converter {
  *                     is copied.
  * @kbdev:             KBase device.
  * @trace_buffer:      CSF Firmware timeline tracebuffer.
+ * @tl_header:         CSFFW Timeline header
  * @tl_header.data:    CSFFW Timeline header content.
  * @tl_header.size:    CSFFW Timeline header size.
  * @tl_header.btc:     CSFFW Timeline header remaining bytes to copy to
@@ -111,6 +92,7 @@ struct kbase_ts_converter {
  *                     is only valid when got_first_event is true.
  * @read_buffer:       Temporary buffer used for CSFFW timeline data
  *                     reading from the tracebufer.
+ * @read_lock:         CSFFW timeline reader lock.
  */
 struct kbase_csf_tl_reader {
 	struct timer_list read_timer;
@@ -151,17 +133,16 @@ void kbase_csf_tl_reader_init(struct kbase_csf_tl_reader *self,
 void kbase_csf_tl_reader_term(struct kbase_csf_tl_reader *self);
 
 /**
- *  kbase_csf_tl_reader_flush_buffer() -
- *   Flush trace from buffer into CSFFW timeline stream.
+ *  kbase_csf_tl_reader_flush_buffer() - Flush trace from buffer into CSFFW timeline stream.
  *
  * @self:    CSFFW TL Reader instance.
+ *
+ * Return: Zero on success, negative error code (EBUSY) otherwise
  */
-
-void kbase_csf_tl_reader_flush_buffer(struct kbase_csf_tl_reader *self);
+int kbase_csf_tl_reader_flush_buffer(struct kbase_csf_tl_reader *self);
 
 /**
- * kbase_csf_tl_reader_start() -
- *	Start asynchronous copying of CSFFW timeline stream.
+ * kbase_csf_tl_reader_start() - Start asynchronous copying of CSFFW timeline stream.
  *
  * @self:	CSFFW TL Reader instance.
  * @kbdev:	Kbase device.
@@ -172,17 +153,15 @@ int kbase_csf_tl_reader_start(struct kbase_csf_tl_reader *self,
 	struct kbase_device *kbdev);
 
 /**
- * kbase_csf_tl_reader_stop() -
- *	Stop asynchronous copying of CSFFW timeline stream.
+ * kbase_csf_tl_reader_stop() - Stop asynchronous copying of CSFFW timeline stream.
  *
  * @self:	CSFFW TL Reader instance.
  */
 void kbase_csf_tl_reader_stop(struct kbase_csf_tl_reader *self);
 
-#ifdef CONFIG_DEBUG_FS
+#if IS_ENABLED(CONFIG_DEBUG_FS)
 /**
- * kbase_csf_tl_reader_debugfs_init() -
- *	Initialize debugfs for CSFFW Timelime Stream Reader.
+ * kbase_csf_tl_reader_debugfs_init() - Initialize debugfs for CSFFW Timelime Stream Reader.
  *
  * @kbdev:	Kbase device.
  */
@@ -190,8 +169,7 @@ void kbase_csf_tl_reader_debugfs_init(struct kbase_device *kbdev);
 #endif
 
 /**
- * kbase_csf_tl_reader_reset() -
- *	Reset CSFFW timeline reader, it should be called before reset CSFFW.
+ * kbase_csf_tl_reader_reset() - Reset CSFFW timeline reader, it should be called before reset CSFFW.
  *
  * @self:	CSFFW TL Reader instance.
  */

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright 2020 Google LLC.
+ * Copyright 2020-2021 Google LLC.
  *
  * Author: Sidath Senanayake <sidaths@google.com>
  */
@@ -19,9 +19,7 @@
 /* Pixel integration includes */
 #include "mali_kbase_config_platform.h"
 #include "pixel_gpu_control.h"
-#include "pixel_gpu_debug.h"
 #include "pixel_gpu_dvfs.h"
-
 
 /**
  * qos_set() - Set a QOS vote on an IP block
@@ -68,7 +66,7 @@ void gpu_dvfs_qos_set(struct kbase_device *kbdev, int level)
 
 	if (pc->dvfs.qos.level_last != level) {
 
-		GPU_LOG(LOG_DEBUG, kbdev,
+		dev_dbg(kbdev->dev,
 			"QOS int_min:  %d\n"
 			"QOS mif_min:  %d\n"
 			"QOS cpu0_min: %d\n"
@@ -84,7 +82,8 @@ void gpu_dvfs_qos_set(struct kbase_device *kbdev, int level)
 		qos_set(&pc->dvfs.qos.cpu2_max, opp.qos.cpu2_max);
 
 #ifdef CONFIG_MALI_PIXEL_GPU_BTS
-		if (opp.clk1 >= pc->dvfs.qos.bts.threshold && !pc->dvfs.qos.bts.enabled) {
+		if (opp.clk[GPU_DVFS_CLK_SHADERS] >= pc->dvfs.qos.bts.threshold &&
+			!pc->dvfs.qos.bts.enabled) {
 			bts_add_scenario(pc->dvfs.qos.bts.scenario);
 			pc->dvfs.qos.bts.enabled = true;
 		} else if (pc->dvfs.qos.bts.enabled) {
@@ -147,20 +146,20 @@ int gpu_dvfs_qos_init(struct kbase_device *kbdev)
 	pc->dvfs.qos.bts.enabled = false;
 
 	if (of_property_read_string(np, "gpu_dvfs_qos_bts_scenario", &bts_scenario_name)) {
-		GPU_LOG(LOG_ERROR, kbdev, "GPU QOS BTS scenario not specified in DT\n");
+		dev_err(kbdev->dev, "GPU QOS BTS scenario not specified in DT\n");
 		ret = -EINVAL;
 		goto done;
 	}
 
 	pc->dvfs.qos.bts.scenario = bts_get_scenindex(bts_scenario_name);
 	if (!pc->dvfs.qos.bts.scenario) {
-		GPU_LOG(LOG_ERROR, kbdev, "invalid GPU QOS BTS scenario specified in DT\n");
+		dev_err(kbdev->dev, "invalid GPU QOS BTS scenario specified in DT\n");
 		ret = -EINVAL;
 		goto done;
 	}
 
 	if (of_property_read_u32(np, "gpu_dvfs_qos_bts_threshold", &pc->dvfs.qos.bts.threshold)) {
-		GPU_LOG(LOG_ERROR, kbdev, "GPU QOS BTS threshold not specified in DT\n");
+		dev_err(kbdev->dev, "GPU QOS BTS threshold not specified in DT\n");
 		ret = -EINVAL;
 		goto done;
 	}
@@ -176,7 +175,7 @@ int gpu_dvfs_qos_init(struct kbase_device *kbdev)
 	pc->dvfs.qos.level_last = -1;
 	pc->dvfs.qos.enabled = false;
 
-	GPU_LOG(LOG_DEBUG, kbdev, "GPU QOS initialized\n");
+	dev_dbg(kbdev->dev, "GPU QOS initialized\n");
 	ret = 0;
 
 done:

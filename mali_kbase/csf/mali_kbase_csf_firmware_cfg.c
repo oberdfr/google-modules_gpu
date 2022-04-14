@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2020-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
  * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
+ * of such GNU license.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,8 +16,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, you can access it online at
  * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
  *
  */
 
@@ -31,10 +29,6 @@
 /**
  * struct firmware_config - Configuration item within the MCU firmware
  *
- * The firmware may expose configuration options. Each option has a name, the
- * address where the option is controlled and the minimum and maximum values
- * that the option can take.
- *
  * @node:        List head linking all options to
  *               kbase_device:csf.firmware_config
  * @kbdev:       Pointer to the Kbase device
@@ -42,17 +36,24 @@
  *               inside CSF_FIRMWARE_CFG_SYSFS_DIR_NAME directory,
  *               representing the configuration option @name.
  * @kobj_inited: kobject initialization state
+ * @updatable:   Indicates whether config items can be updated with
+ *               FIRMWARE_CONFIG_UPDATE
  * @name:        NUL-terminated string naming the option
  * @address:     The address in the firmware image of the configuration option
  * @min:         The lowest legal value of the configuration option
  * @max:         The maximum legal value of the configuration option
  * @cur_val:     The current value of the configuration option
+ *
+ * The firmware may expose configuration options. Each option has a name, the
+ * address where the option is controlled and the minimum and maximum values
+ * that the option can take.
  */
 struct firmware_config {
 	struct list_head node;
 	struct kbase_device *kbdev;
 	struct kobject kobj;
 	bool kobj_inited;
+	bool updatable;
 	char *name;
 	u32 address;
 	u32 min;
@@ -66,9 +67,9 @@ struct firmware_config {
 			.mode = VERIFY_OCTAL_PERMISSIONS(_mode),	\
 	}
 
-static FW_CFG_ATTR(min, S_IRUGO);
-static FW_CFG_ATTR(max, S_IRUGO);
-static FW_CFG_ATTR(cur, S_IRUGO | S_IWUSR);
+static FW_CFG_ATTR(min, 0444);
+static FW_CFG_ATTR(max, 0444);
+static FW_CFG_ATTR(cur, 0644);
 
 static void fw_cfg_kobj_release(struct kobject *kobj)
 {
@@ -143,14 +144,20 @@ static ssize_t store_fw_cfg(struct kobject *kobj,
 			return count;
 		}
 
-		/*
-		 * If there is already a GPU reset pending then inform
-		 * the User to retry the write.
+		/* If configuration update cannot be performed with
+		 * FIRMWARE_CONFIG_UPDATE then we need to do a
+		 * silent reset before we update the memory.
 		 */
-		if (kbase_reset_gpu_silent(kbdev)) {
-			spin_unlock_irqrestore(
-				&kbdev->hwaccess_lock, flags);
-			return -EAGAIN;
+		if (!config->updatable) {
+			/*
+			 * If there is already a GPU reset pending then inform
+			 * the User to retry the write.
+			 */
+			if (kbase_reset_gpu_silent(kbdev)) {
+				spin_unlock_irqrestore(&kbdev->hwaccess_lock,
+						       flags);
+				return -EAGAIN;
+			}
 		}
 
 		/*
@@ -166,10 +173,21 @@ static ssize_t store_fw_cfg(struct kobject *kobj,
 			kbdev, config->address, val);
 
 		config->cur_val = val;
+
 		spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
 
+		/* If we can update the config without firmware reset then
+		 * we need to just trigger FIRMWARE_CONFIG_UPDATE.
+		 */
+		if (config->updatable) {
+			ret = kbase_csf_trigger_firmware_config_update(kbdev);
+			if (ret)
+				return ret;
+		}
+
 		/* Wait for the config update to take effect */
-		kbase_reset_gpu_wait(kbdev);
+		if (!config->updatable)
+			kbase_reset_gpu_wait(kbdev);
 	} else {
 		dev_warn(kbdev->dev,
 			"Unexpected write to entry %s/%s",
@@ -255,8 +273,9 @@ void kbase_csf_firmware_cfg_term(struct kbase_device *kbdev)
 }
 
 int kbase_csf_firmware_cfg_option_entry_parse(struct kbase_device *kbdev,
-		const struct firmware *fw,
-		const u32 *entry, unsigned int size)
+					      const struct firmware *fw,
+					      const u32 *entry,
+					      unsigned int size, bool updatable)
 {
 	const char *name = (char *)&entry[3];
 	struct firmware_config *config;
@@ -271,6 +290,7 @@ int kbase_csf_firmware_cfg_option_entry_parse(struct kbase_device *kbdev,
 		return -ENOMEM;
 
 	config->kbdev = kbdev;
+	config->updatable = updatable;
 	config->name = (char *)(config+1);
 	config->address = entry[0];
 	config->min = entry[1];

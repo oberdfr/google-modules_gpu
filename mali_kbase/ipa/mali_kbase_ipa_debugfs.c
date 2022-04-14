@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2017-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2017-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
  * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
+ * of such GNU license.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,8 +16,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, you can access it online at
  * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
  *
  */
 
@@ -130,8 +128,14 @@ static ssize_t param_string_set(struct file *file, const char __user *user_buf,
 
 	err = kbase_ipa_model_recalculate(model);
 	if (err < 0) {
+		u32 string_len = strscpy(param->addr.str, old_str, param->size);
+
+		string_len += sizeof(char);
+		/* Make sure that the source string fit into the buffer. */
+		KBASE_DEBUG_ASSERT(string_len <= param->size);
+		CSTD_UNUSED(string_len);
+
 		ret = err;
-		strlcpy(param->addr.str, old_str, param->size);
 	}
 
 end:
@@ -249,7 +253,7 @@ static void kbase_ipa_model_debugfs_init(struct kbase_ipa_model *model)
 	dir = debugfs_create_dir(model->ops->name,
 				 model->kbdev->mali_debugfs_directory);
 
-	if (!dir) {
+	if (IS_ERR_OR_NULL(dir)) {
 		dev_err(model->kbdev->dev,
 			"Couldn't create mali debugfs %s directory",
 			model->ops->name);
@@ -277,7 +281,7 @@ static void kbase_ipa_model_debugfs_init(struct kbase_ipa_model *model)
 				"Type not set for %s parameter %s\n",
 				model->ops->name, param->name);
 		} else {
-			debugfs_create_file(param->name, S_IRUGO | S_IWUSR,
+			debugfs_create_file(param->name, 0644,
 					    dir, param, fops);
 		}
 	}

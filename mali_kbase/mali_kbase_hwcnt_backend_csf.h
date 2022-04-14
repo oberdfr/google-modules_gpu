@@ -1,27 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  *
- * (C) COPYRIGHT ARM Limited. All rights reserved.
- *
- * This program is free software and is provided to you under the terms of the
- * GNU General Public License version 2 as published by the Free Software
- * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, you can access it online at
- * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
- *
- *//* SPDX-License-Identifier: GPL-2.0 */
-/*
- *
- * (C) COPYRIGHT 2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -39,7 +19,7 @@
  *
  */
 
-/**
+/*
  * Concrete implementation of mali_kbase_hwcnt_backend interface for CSF
  * backend.
  */
@@ -49,6 +29,7 @@
 
 #include "mali_kbase_hwcnt_backend.h"
 #include "mali_kbase_hwcnt_backend_csf_if.h"
+#include "mali_kbase_hwcnt_watchdog_if.h"
 
 /**
  * kbase_hwcnt_backend_csf_create() - Create a CSF hardware counter backend
@@ -57,16 +38,19 @@
  *                used to create backend interface.
  * @ring_buf_cnt: The buffer count of CSF hwcnt backend, used when allocate ring
  *                buffer, MUST be power of 2.
+ * @watchdog_if:  Non-NULL pointer to a hwcnt watchdog interface structure used
+ *                to create backend interface.
  * @iface:        Non-NULL pointer to backend interface structure that is filled
  *                in on creation success.
  *
- * Calls to iface->dump_enable_nolock() require kbdev->hwaccess_lock held.
+ * Calls to iface->dump_enable_nolock() require the CSF Scheduler IRQ lock.
  *
  * Return: 0 on success, else error code.
  */
-int kbase_hwcnt_backend_csf_create(struct kbase_hwcnt_backend_csf_if *csf_if,
-				   u32 ring_buf_cnt,
-				   struct kbase_hwcnt_backend_interface *iface);
+int kbase_hwcnt_backend_csf_create(
+	struct kbase_hwcnt_backend_csf_if *csf_if, u32 ring_buf_cnt,
+	struct kbase_hwcnt_watchdog_interface *watchdog_if,
+	struct kbase_hwcnt_backend_interface *iface);
 
 /**
  * kbase_hwcnt_backend_csf_metadata_init() - Initialize the metadata for a CSF
@@ -97,7 +81,7 @@ void kbase_hwcnt_backend_csf_destroy(
 	struct kbase_hwcnt_backend_interface *iface);
 
 /**
- * kbase_hwcnt_backend_csf_protm_entered() - CSf HWC backend function to receive
+ * kbase_hwcnt_backend_csf_protm_entered() - CSF HWC backend function to receive
  *                                           notification that protected mode
  *                                           has been entered.
  * @iface: Non-NULL pointer to HWC backend interface.
@@ -106,7 +90,7 @@ void kbase_hwcnt_backend_csf_protm_entered(
 	struct kbase_hwcnt_backend_interface *iface);
 
 /**
- * kbase_hwcnt_backend_csf_protm_exited() - CSf HWC backend function to receive
+ * kbase_hwcnt_backend_csf_protm_exited() - CSF HWC backend function to receive
  *                                          notification that protected mode has
  *                                          been exited.
  * @iface: Non-NULL pointer to HWC backend interface.
@@ -115,22 +99,20 @@ void kbase_hwcnt_backend_csf_protm_exited(
 	struct kbase_hwcnt_backend_interface *iface);
 
 /**
- * kbase_hwcnt_backend_csf_on_unrecoverable_error() - CSf HWC backend function
- *                                                    to be called when an
- *                                                    unrecoverable error
- *                                                    occurs, such as the
- *                                                    firmware has died or bus
- *                                                    error, this puts us into
- *                                                    the unrecoverable error
- *                                                    state, which we can only
- *                                                    get out of by a reset.
+ * kbase_hwcnt_backend_csf_on_unrecoverable_error() - CSF HWC backend function
+ *                                                    called when unrecoverable
+ *                                                    errors are detected.
  * @iface: Non-NULL pointer to HWC backend interface.
+ *
+ * This should be called on encountering errors that can only be recovered from
+ * with reset, or that may put HWC logic in state that could result in hang. For
+ * example, on bus error, or when FW becomes unresponsive.
  */
 void kbase_hwcnt_backend_csf_on_unrecoverable_error(
 	struct kbase_hwcnt_backend_interface *iface);
 
 /**
- * kbase_hwcnt_backend_csf_on_before_reset() - CSf HWC backend function to be
+ * kbase_hwcnt_backend_csf_on_before_reset() - CSF HWC backend function to be
  *                                             called immediately before a
  *                                             reset. Takes us out of the
  *                                             unrecoverable error state, if we

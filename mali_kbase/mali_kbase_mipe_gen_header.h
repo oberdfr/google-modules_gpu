@@ -1,27 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  *
- * (C) COPYRIGHT ARM Limited. All rights reserved.
- *
- * This program is free software and is provided to you under the terms of the
- * GNU General Public License version 2 as published by the Free Software
- * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, you can access it online at
- * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
- *
- *//* SPDX-License-Identifier: GPL-2.0 */
-/*
- *
- * (C) COPYRIGHT 2010-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2010-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -47,7 +27,7 @@
 
 #include "mali_kbase_mipe_proto.h"
 
-/**
+/*
  * This header generates MIPE tracepoint declaration BLOB at
  * compile time.
  *
@@ -59,14 +39,14 @@
  * defined. See documentation below:
  */
 
-/**
+/*
  * The name of the variable where the result BLOB will be stored.
  */
 #if !defined(MIPE_HEADER_BLOB_VAR_NAME)
 #error "MIPE_HEADER_BLOB_VAR_NAME must be defined!"
 #endif
 
-/**
+/*
  * A compiler attribute for the BLOB variable.
  *
  * e.g. __attribute__((section("my_section")))
@@ -77,7 +57,7 @@
 #define MIPE_HEADER_BLOB_VAR_ATTRIBUTE
 #endif
 
-/**
+/*
  * A compiler attribute for packing structures
  *
  * e.g. __packed
@@ -88,7 +68,7 @@
 #define MIPE_HEADER_PACKED_ATTRIBUTE __attribute__((__packed__))
 #endif
 
-/**
+/*
  * MIPE stream id.
  *
  * See enum tl_stream_id.
@@ -97,7 +77,7 @@
 #error "MIPE_HEADER_STREAM_ID must be defined!"
 #endif
 
-/**
+/*
  * MIPE packet class.
  *
  * See enum tl_packet_class.
@@ -106,7 +86,7 @@
 #error "MIPE_HEADER_PKT_CLASS must be defined!"
 #endif
 
-/**
+/*
  * The list of tracepoints to process.
  *
  * It should be defined as follows:
@@ -118,21 +98,21 @@
  *
  * Where the first argument is tracepoints name, the second
  * argument is a short tracepoint description, the third argument
- * argument types (see MIPE documentation), and the fourth argument
+ * types (see MIPE documentation), and the fourth argument
  * is comma separated argument names.
  */
 #if !defined(MIPE_HEADER_TRACEPOINT_LIST)
 #error "MIPE_HEADER_TRACEPOINT_LIST must be defined!"
 #endif
 
-/**
+/*
  * The number of entries in MIPE_HEADER_TRACEPOINT_LIST.
  */
 #if !defined(MIPE_HEADER_TRACEPOINT_LIST_SIZE)
 #error "MIPE_HEADER_TRACEPOINT_LIST_SIZE must be defined!"
 #endif
 
-/**
+/*
  * The list of enums to process.
  *
  * It should be defined as follows:
@@ -149,7 +129,7 @@
  */
 #if defined(MIPE_HEADER_ENUM_LIST)
 
-/**
+/*
  * Tracepoint message ID used for enums declaration.
  */
 #if !defined(MIPE_HEADER_ENUM_MSG_ID)
@@ -160,7 +140,7 @@
 #define MIPE_HEADER_ENUM_LIST
 #endif
 
-/**
+/*
  * The MIPE tracepoint declaration BLOB.
  */
 const struct

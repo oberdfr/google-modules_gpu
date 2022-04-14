@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2018-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2018-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
  * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
+ * of such GNU license.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,8 +16,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, you can access it online at
  * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
  *
  */
 
@@ -31,7 +29,7 @@
 #include <linux/list.h>
 #include <linux/mman.h>
 
-#ifdef CONFIG_DEBUG_FS
+#if IS_ENABLED(CONFIG_DEBUG_FS)
 #if (KERNEL_VERSION(4, 7, 0) > LINUX_VERSION_CODE)
 #define DEFINE_DEBUGFS_ATTRIBUTE DEFINE_SIMPLE_ATTRIBUTE
 #endif
@@ -40,43 +38,47 @@
 /**
  * struct firmware_trace_buffer - Trace Buffer within the MCU firmware
  *
+ * @kbdev:        Pointer to the Kbase device.
+ * @node:         List head linking all trace buffers to
+ *                kbase_device:csf.firmware_trace_buffers
+ * @data_mapping: MCU shared memory mapping used for the data buffer.
+ * @updatable:    Indicates whether config items can be updated with
+ *                FIRMWARE_CONFIG_UPDATE
+ * @type:         The type of the trace buffer.
+ * @trace_enable_entry_count: Number of Trace Enable bits.
+ * @gpu_va:                 Structure containing all the Firmware addresses
+ *                          that are accessed by the MCU.
+ * @gpu_va.size_address:    The address where the MCU shall read the size of
+ *                          the data buffer.
+ * @gpu_va.insert_address:  The address that shall be dereferenced by the MCU
+ *                          to write the Insert offset.
+ * @gpu_va.extract_address: The address that shall be dereferenced by the MCU
+ *                          to read the Extract offset.
+ * @gpu_va.data_address:    The address that shall be dereferenced by the MCU
+ *                          to write the Trace Buffer.
+ * @gpu_va.trace_enable:    The address where the MCU shall read the array of
+ *                          Trace Enable bits describing which trace points
+ *                          and features shall be enabled.
+ * @cpu_va:                 Structure containing CPU addresses of variables
+ *                          which are permanently mapped on the CPU address
+ *                          space.
+ * @cpu_va.insert_cpu_va:   CPU virtual address of the Insert variable.
+ * @cpu_va.extract_cpu_va:  CPU virtual address of the Extract variable.
+ * @num_pages: Size of the data buffer, in pages.
+ * @trace_enable_init_mask: Initial value for the trace enable bit mask.
+ * @name:  NULL terminated string which contains the name of the trace buffer.
+ *
  * The firmware relays information to the host by writing on memory buffers
  * which are allocated and partially configured by the host. These buffers
  * are called Trace Buffers: each of them has a specific purpose and is
  * identified by a name and a set of memory addresses where the host can
  * set pointers to host-allocated structures.
- *
- * @kbdev:        Pointer to the Kbase device.
- * @node:         List head linking all trace buffers to
- *                kbase_device:csf.firmware_trace_buffers
- * @data_mapping: MCU shared memory mapping used for the data buffer.
- * @type:         The type of the trace buffer.
- * @trace_enable_entry_count: Number of Trace Enable bits.
- * @gpu_va:       Structure containing all the Firmware addresses
- *                that are accessed by the MCU.
- * @size_address:    The address where the MCU shall read the size of
- *                   the data buffer.
- * @insert_address:  The address that shall be dereferenced by the MCU
- *                   to write the Insert offset.
- * @extract_address: The address that shall be dereferenced by the MCU
- *                   to read the Extract offset.
- * @data_address:    The address that shall be dereferenced by the MCU
- *                   to write the Trace Buffer.
- * @trace_enable:    The address where the MCU shall read the array of
- *                   Trace Enable bits describing which trace points
- *                   and features shall be enabled.
- * @cpu_va:          Structure containing CPU addresses of variables which
- *                   are permanently mapped on the CPU address space.
- * @insert_cpu_va:   CPU virtual address of the Insert variable.
- * @extract_cpu_va:  CPU virtual address of the Extract variable.
- * @num_pages: Size of the data buffer, in pages.
- * @trace_enable_init_mask: Initial value for the trace enable bit mask.
- * @name:  NULL terminated string which contains the name of the trace buffer.
  */
 struct firmware_trace_buffer {
 	struct kbase_device *kbdev;
 	struct list_head node;
 	struct kbase_csf_mapping data_mapping;
+	bool updatable;
 	u32 type;
 	u32 trace_enable_entry_count;
 	struct gpu_va {
@@ -98,14 +100,14 @@ struct firmware_trace_buffer {
 /**
  * struct firmware_trace_buffer_data - Configuration data for trace buffers
  *
- * Describe how to set up a trace buffer interface.
- * Trace buffers are identified by name and they require a data buffer and
- * an initial mask of values for the trace enable bits.
- *
  * @name: Name identifier of the trace buffer
  * @trace_enable_init_mask: Initial value to assign to the trace enable bits
  * @size: Size of the data buffer to allocate for the trace buffer, in pages.
  *        The size of a data buffer must always be a power of 2.
+ *
+ * Describe how to set up a trace buffer interface.
+ * Trace buffers are identified by name and they require a data buffer and
+ * an initial mask of values for the trace enable bits.
  */
 struct firmware_trace_buffer_data {
 	char name[64];
@@ -113,20 +115,19 @@ struct firmware_trace_buffer_data {
 	size_t size;
 };
 
-/**
+/*
  * Table of configuration data for trace buffers.
  *
  * This table contains the configuration data for the trace buffers that are
  * expected to be parsed from the firmware.
  */
-static const struct firmware_trace_buffer_data
-trace_buffer_data[] = {
-#ifndef MALI_KBASE_BUILD
-	{ "fwutf", {0}, 1 },
+static const struct firmware_trace_buffer_data trace_buffer_data[] = {
+#if MALI_UNIT_TEST
+	{ "fwutf", { 0 }, 1 },
 #endif
-	{ FW_TRACE_BUF_NAME, {0}, 4 },
-	{ "benchmark", {0}, 2 },
-	{ "timeline",  {0}, KBASE_CSF_TL_BUFFER_NR_PAGES },
+	{ FW_TRACE_BUF_NAME, { 0 }, 4 },
+	{ "benchmark", { 0 }, 2 },
+	{ "timeline", { 0 }, KBASE_CSF_TL_BUFFER_NR_PAGES },
 };
 
 int kbase_csf_firmware_trace_buffers_init(struct kbase_device *kbdev)
@@ -178,13 +179,13 @@ int kbase_csf_firmware_trace_buffers_init(struct kbase_device *kbdev)
 		extract_gpu_va =
 			(kbdev->csf.firmware_trace_buffers.mcu_rw.va_reg->start_pfn << PAGE_SHIFT) +
 			mcu_rw_offset;
-		extract_cpu_va = (u32*)(
+		extract_cpu_va = (u32 *)(
 			kbdev->csf.firmware_trace_buffers.mcu_rw.cpu_addr +
 			mcu_rw_offset);
 		insert_gpu_va =
 			(kbdev->csf.firmware_trace_buffers.mcu_write.va_reg->start_pfn << PAGE_SHIFT) +
 			mcu_write_offset;
-		insert_cpu_va = (u32*)(
+		insert_cpu_va = (u32 *)(
 			kbdev->csf.firmware_trace_buffers.mcu_write.cpu_addr +
 			mcu_write_offset);
 		data_buffer_gpu_va =
@@ -251,7 +252,9 @@ void kbase_csf_firmware_trace_buffers_term(struct kbase_device *kbdev)
 }
 
 int kbase_csf_firmware_parse_trace_buffer_entry(struct kbase_device *kbdev,
-		const u32 *entry, unsigned int size)
+						const u32 *entry,
+						unsigned int size,
+						bool updatable)
 {
 	const char *name = (char *)&entry[7];
 	const unsigned int name_len = size - TRACE_BUFFER_ENTRY_NAME_OFFSET;
@@ -275,6 +278,7 @@ int kbase_csf_firmware_parse_trace_buffer_entry(struct kbase_device *kbdev,
 			unsigned int j;
 
 			trace_buffer->kbdev = kbdev;
+			trace_buffer->updatable = updatable;
 			trace_buffer->type = entry[0];
 			trace_buffer->gpu_va.size_address = entry[1];
 			trace_buffer->gpu_va.insert_address = entry[2];
@@ -319,13 +323,13 @@ void kbase_csf_firmware_reload_trace_buffers_data(struct kbase_device *kbdev)
 		extract_gpu_va =
 			(kbdev->csf.firmware_trace_buffers.mcu_rw.va_reg->start_pfn << PAGE_SHIFT) +
 			mcu_rw_offset;
-		extract_cpu_va = (u32*)(
+		extract_cpu_va = (u32 *)(
 			kbdev->csf.firmware_trace_buffers.mcu_rw.cpu_addr +
 			mcu_rw_offset);
 		insert_gpu_va =
 			(kbdev->csf.firmware_trace_buffers.mcu_write.va_reg->start_pfn << PAGE_SHIFT) +
 			mcu_write_offset;
-		insert_cpu_va = (u32*)(
+		insert_cpu_va = (u32 *)(
 			kbdev->csf.firmware_trace_buffers.mcu_write.cpu_addr +
 			mcu_write_offset);
 		data_buffer_gpu_va =
@@ -393,9 +397,13 @@ unsigned int kbase_csf_firmware_trace_buffer_get_trace_enable_bits_count(
 }
 EXPORT_SYMBOL(kbase_csf_firmware_trace_buffer_get_trace_enable_bits_count);
 
-void kbase_csf_firmware_trace_buffer_update_trace_enable_bit(
+static void kbasep_csf_firmware_trace_buffer_update_trace_enable_bit(
 	struct firmware_trace_buffer *tb, unsigned int bit, bool value)
 {
+	struct kbase_device *kbdev = tb->kbdev;
+
+	lockdep_assert_held(&kbdev->hwaccess_lock);
+
 	if (bit < tb->trace_enable_entry_count) {
 		unsigned int trace_enable_reg_offset = bit >> 5;
 		u32 trace_enable_bit_mask = 1u << (bit & 0x1F);
@@ -415,10 +423,47 @@ void kbase_csf_firmware_trace_buffer_update_trace_enable_bit(
 		 * trace buffers, since firmware could continue to use the
 		 * value of bitmask it cached after the boot.
 		 */
-		kbase_csf_update_firmware_memory(tb->kbdev,
-			tb->gpu_va.trace_enable + trace_enable_reg_offset*4,
+		kbase_csf_update_firmware_memory(
+			kbdev,
+			tb->gpu_va.trace_enable + trace_enable_reg_offset * 4,
 			tb->trace_enable_init_mask[trace_enable_reg_offset]);
 	}
+}
+
+int kbase_csf_firmware_trace_buffer_update_trace_enable_bit(
+	struct firmware_trace_buffer *tb, unsigned int bit, bool value)
+{
+	struct kbase_device *kbdev = tb->kbdev;
+	int err = 0;
+	unsigned long flags;
+
+	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
+
+	/* If trace buffer update cannot be performed with
+	 * FIRMWARE_CONFIG_UPDATE then we need to do a
+	 * silent reset before we update the memory.
+	 */
+	if (!tb->updatable) {
+		/* If there is already a GPU reset pending then inform
+		 * the User to retry the update.
+		 */
+		if (kbase_reset_gpu_silent(kbdev)) {
+			dev_warn(
+				kbdev->dev,
+				"GPU reset already in progress when enabling firmware timeline.");
+			spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
+			return -EAGAIN;
+		}
+	}
+
+	kbasep_csf_firmware_trace_buffer_update_trace_enable_bit(tb, bit,
+								 value);
+	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
+
+	if (tb->updatable)
+		err = kbase_csf_trigger_firmware_config_update(kbdev);
+
+	return err;
 }
 EXPORT_SYMBOL(kbase_csf_firmware_trace_buffer_update_trace_enable_bit);
 
@@ -467,7 +512,7 @@ unsigned int kbase_csf_firmware_trace_buffer_read_data(
 }
 EXPORT_SYMBOL(kbase_csf_firmware_trace_buffer_read_data);
 
-#ifdef CONFIG_DEBUG_FS
+#if IS_ENABLED(CONFIG_DEBUG_FS)
 
 #define U32_BITS 32
 static u64 get_trace_buffer_active_mask64(struct firmware_trace_buffer *tb)
@@ -486,8 +531,8 @@ static void update_trace_buffer_active_mask64(struct firmware_trace_buffer *tb,
 	unsigned int i;
 
 	for (i = 0; i < tb->trace_enable_entry_count; i++)
-		kbase_csf_firmware_trace_buffer_update_trace_enable_bit(tb, i,
-							(mask >> i) & 1);
+		kbasep_csf_firmware_trace_buffer_update_trace_enable_bit(
+			tb, i, (mask >> i) & 1);
 }
 
 static int set_trace_buffer_active_mask64(struct firmware_trace_buffer *tb,
@@ -497,13 +542,25 @@ static int set_trace_buffer_active_mask64(struct firmware_trace_buffer *tb,
 	unsigned long flags;
 	int err = 0;
 
-	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
-	/* If there is already a GPU reset pending, need a retry */
-	if (kbase_reset_gpu_silent(kbdev))
-		err = -EAGAIN;
-	else
+	if (!tb->updatable) {
+		/* If there is already a GPU reset pending, need a retry */
+		spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
+		if (kbase_reset_gpu_silent(kbdev))
+			err = -EAGAIN;
+		spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
+	}
+
+	if (!err) {
+		spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
 		update_trace_buffer_active_mask64(tb, mask);
-	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
+		spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
+
+		/* if we can update the config we need to just trigger
+		 * FIRMWARE_CONFIG_UPDATE.
+		 */
+		if (tb->updatable)
+			err = kbase_csf_trigger_firmware_config_update(kbdev);
+	}
 
 	return err;
 }

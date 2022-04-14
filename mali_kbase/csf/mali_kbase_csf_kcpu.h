@@ -1,27 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  *
- * (C) COPYRIGHT ARM Limited. All rights reserved.
- *
- * This program is free software and is provided to you under the terms of the
- * GNU General Public License version 2 as published by the Free Software
- * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, you can access it online at
- * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
- *
- *//* SPDX-License-Identifier: GPL-2.0 */
-/*
- *
- * (C) COPYRIGHT 2018-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2018-2022 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -67,9 +47,9 @@ struct kbase_kcpu_command_import_info {
  * struct kbase_kcpu_command_fence_info - Structure which holds information
  *		about the fence object enqueued in the kcpu command queue
  *
- * @fence_cb:
- * @fence:
- * @kcpu_queue:
+ * @fence_cb:   Fence callback
+ * @fence:      Fence
+ * @kcpu_queue: kcpu command queue
  */
 struct kbase_kcpu_command_fence_info {
 #if (KERNEL_VERSION(4, 10, 0) > LINUX_VERSION_CODE)
@@ -89,13 +69,10 @@ struct kbase_kcpu_command_fence_info {
  * @objs:	Array of structures which define CQS objects to be used by
  *		the kcpu command.
  * @nr_objs:	Number of CQS objects in the array.
- * @propagate_flags:  Bit-pattern for the CQSs in the array that are set
- *		      to propagate queue error-state to the flagged CQSs.
  */
 struct kbase_kcpu_command_cqs_set_info {
 	struct base_cqs_set *objs;
 	unsigned int nr_objs;
-	u32 propagate_flags;
 };
 
 /**
@@ -112,7 +89,39 @@ struct kbase_kcpu_command_cqs_set_info {
  *			queue's error-state.
  */
 struct kbase_kcpu_command_cqs_wait_info {
-	struct base_cqs_wait *objs;
+	struct base_cqs_wait_info *objs;
+	unsigned long *signaled;
+	unsigned int nr_objs;
+	u32 inherit_err_flags;
+};
+
+/**
+ * struct kbase_kcpu_command_cqs_set_operation_info - Structure which holds information
+ *				about CQS objects for the kcpu CQS timeline set command
+ *
+ * @objs:	Array of structures which define CQS timeline objects to be used by
+ *		the kcpu command.
+ * @nr_objs:	Number of CQS objects in the array.
+ */
+struct kbase_kcpu_command_cqs_set_operation_info {
+	struct base_cqs_set_operation_info *objs;
+	unsigned int nr_objs;
+};
+
+/**
+ * struct kbase_kcpu_command_cqs_wait_operation_info - Structure which holds information
+ *				about CQS objects for the kcpu CQS timeline wait command
+ *
+ * @objs:	Array of structures which define CQS timeline objects to be used by
+ *		the kcpu command.
+ * @signaled:	Bit array used to report the status of the CQS wait objects.
+ *              1 is signaled, 0 otherwise.
+ * @nr_objs:	Number of CQS objects in the array.
+ * @inherit_err_flags: Bit-pattern for CQSs in the array who's error field is to
+ *                     be used as the source to import into the queue's error-state
+ */
+struct kbase_kcpu_command_cqs_wait_operation_info {
+	struct base_cqs_wait_operation_info *objs;
 	unsigned long *signaled;
 	unsigned int nr_objs;
 	u32 inherit_err_flags;
@@ -122,7 +131,7 @@ struct kbase_kcpu_command_cqs_wait_info {
  * struct kbase_kcpu_command_jit_alloc_info - Structure which holds information
  *				needed for the kcpu command for jit allocations
  *
- * @node	Used to keep track of all JIT free/alloc commands in submission
+ * @node:	Used to keep track of all JIT free/alloc commands in submission
  *		order. This must be located in the front of this struct to
  *		match that of kbase_kcpu_command_jit_free_info.
  * @info:	Array of objects of the struct base_jit_alloc_info type which
@@ -187,6 +196,7 @@ struct kbase_kcpu_command_group_suspend_info {
 	u8 group_handle;
 };
 
+
 /**
  * struct kbase_cpu_command - Command which is to be part of the kernel
  *                            command queue
@@ -196,6 +206,16 @@ struct kbase_kcpu_command_group_suspend_info {
  *		indicates that it has been enqueued earlier.
  * @info:	Structure which holds information about the command
  *		dependent on the command type.
+ * @info.fence:              Fence
+ * @info.cqs_wait:           CQS wait
+ * @info.cqs_set:            CQS set
+ * @info.cqs_wait_operation: CQS wait operation
+ * @info.cqs_set_operation:  CQS set operation
+ * @info.import:             import
+ * @info.jit_alloc:          JIT allocation
+ * @info.jit_free:           JIT deallocation
+ * @info.suspend_buf_copy:   suspend buffer copy
+ * @info.sample_time:        sample time
  */
 struct kbase_kcpu_command {
 	enum base_kcpu_command_type type;
@@ -204,6 +224,8 @@ struct kbase_kcpu_command {
 		struct kbase_kcpu_command_fence_info fence;
 		struct kbase_kcpu_command_cqs_wait_info cqs_wait;
 		struct kbase_kcpu_command_cqs_set_info cqs_set;
+		struct kbase_kcpu_command_cqs_wait_operation_info cqs_wait_operation;
+		struct kbase_kcpu_command_cqs_set_operation_info cqs_set_operation;
 		struct kbase_kcpu_command_import_info import;
 		struct kbase_kcpu_command_jit_alloc_info jit_alloc;
 		struct kbase_kcpu_command_jit_free_info jit_free;
@@ -274,6 +296,8 @@ struct kbase_kcpu_command_queue {
  *		queue will be created.
  * @newq:	Pointer to the structure which contains information about
  *		the new KCPU command queue to be created.
+ *
+ * Return: 0 if successful or a negative error code on failure.
  */
 int kbase_csf_kcpu_queue_new(struct kbase_context *kctx,
 			 struct kbase_ioctl_kcpu_queue_new *newq);
@@ -281,12 +305,12 @@ int kbase_csf_kcpu_queue_new(struct kbase_context *kctx,
 /**
  * kbase_csf_kcpu_queue_delete - Delete KCPU command queue.
  *
- * Return: 0 if successful, -EINVAL if the queue ID is invalid.
- *
  * @kctx:	Pointer to the kbase context from which the KCPU command
  *		queue is to be deleted.
  * @del:	Pointer to the structure which specifies the KCPU command
  *		queue to be deleted.
+ *
+ * Return: 0 if successful or a negative error code on failure.
  */
 int kbase_csf_kcpu_queue_delete(struct kbase_context *kctx,
 			    struct kbase_ioctl_kcpu_queue_delete *del);
@@ -300,6 +324,8 @@ int kbase_csf_kcpu_queue_delete(struct kbase_context *kctx,
  * @enq:	Pointer to the structure which specifies the KCPU command
  *		as well as the KCPU command queue into which the command
  *		is to be enqueued.
+ *
+ * Return: 0 if successful or a negative error code on failure.
  */
 int kbase_csf_kcpu_queue_enqueue(struct kbase_context *kctx,
 				 struct kbase_ioctl_kcpu_queue_enqueue *enq);
@@ -317,11 +343,11 @@ int kbase_csf_kcpu_queue_context_init(struct kbase_context *kctx);
 /**
  * kbase_csf_kcpu_queue_context_term - Terminate the kernel CPU queues context
  *                                     for a GPU address space
+ * @kctx: Pointer to the kbase context being terminated.
  *
  * This function deletes any kernel CPU queues that weren't deleted before
  * context termination.
  *
- * @kctx: Pointer to the kbase context being terminated.
  */
 void kbase_csf_kcpu_queue_context_term(struct kbase_context *kctx);
 

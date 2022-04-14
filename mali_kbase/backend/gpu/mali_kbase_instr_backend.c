@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2014-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2014-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
  * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
+ * of such GNU license.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,8 +16,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, you can access it online at
  * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
  *
  */
 
@@ -51,6 +49,12 @@ int kbase_instr_hwcnt_enable_internal(struct kbase_device *kbdev,
 
 	if (kbdev->hwcnt.backend.state != KBASE_INSTR_STATE_DISABLED) {
 		/* Instrumentation is already enabled */
+		spin_unlock_irqrestore(&kbdev->hwcnt.lock, flags);
+		goto out_err;
+	}
+
+	if (kbase_is_gpu_removed(kbdev)) {
+		/* GPU has been removed by Arbiter */
 		spin_unlock_irqrestore(&kbdev->hwcnt.lock, flags);
 		goto out_err;
 	}
@@ -109,35 +113,68 @@ int kbase_instr_hwcnt_enable_internal(struct kbase_device *kbdev,
 
 	err = 0;
 
-	dev_dbg(kbdev->dev, "HW counters dumping set-up for context %p", kctx);
+	dev_dbg(kbdev->dev, "HW counters dumping set-up for context %pK", kctx);
 	return err;
  out_err:
 	return err;
+}
+
+static void kbasep_instr_hwc_disable_hw_prfcnt(struct kbase_device *kbdev)
+{
+	u32 irq_mask;
+
+	lockdep_assert_held(&kbdev->hwaccess_lock);
+	lockdep_assert_held(&kbdev->hwcnt.lock);
+
+	if (kbase_is_gpu_removed(kbdev))
+		/* GPU has been removed by Arbiter */
+		return;
+
+	/* Disable interrupt */
+	irq_mask = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK));
+
+	kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK), irq_mask & ~PRFCNT_SAMPLE_COMPLETED);
+
+	/* Disable the counters */
+	kbase_reg_write(kbdev, GPU_CONTROL_REG(PRFCNT_CONFIG), 0);
+
+	kbdev->hwcnt.kctx = NULL;
+	kbdev->hwcnt.addr = 0ULL;
+	kbdev->hwcnt.addr_bytes = 0ULL;
 }
 
 int kbase_instr_hwcnt_disable_internal(struct kbase_context *kctx)
 {
 	unsigned long flags, pm_flags;
 	int err = -EINVAL;
-	u32 irq_mask;
 	struct kbase_device *kbdev = kctx->kbdev;
 
 	while (1) {
 		spin_lock_irqsave(&kbdev->hwaccess_lock, pm_flags);
 		spin_lock_irqsave(&kbdev->hwcnt.lock, flags);
 
+		if (kbdev->hwcnt.backend.state == KBASE_INSTR_STATE_UNRECOVERABLE_ERROR) {
+			/* Instrumentation is in unrecoverable error state,
+			 * there is nothing for us to do.
+			 */
+			spin_unlock_irqrestore(&kbdev->hwcnt.lock, flags);
+			spin_unlock_irqrestore(&kbdev->hwaccess_lock, pm_flags);
+			/* Already disabled, return no error. */
+			return 0;
+		}
+
 		if (kbdev->hwcnt.backend.state == KBASE_INSTR_STATE_DISABLED) {
 			/* Instrumentation is not enabled */
 			spin_unlock_irqrestore(&kbdev->hwcnt.lock, flags);
 			spin_unlock_irqrestore(&kbdev->hwaccess_lock, pm_flags);
-			goto out;
+			return err;
 		}
 
 		if (kbdev->hwcnt.kctx != kctx) {
 			/* Instrumentation has been setup for another context */
 			spin_unlock_irqrestore(&kbdev->hwcnt.lock, flags);
 			spin_unlock_irqrestore(&kbdev->hwaccess_lock, pm_flags);
-			goto out;
+			return err;
 		}
 
 		if (kbdev->hwcnt.backend.state == KBASE_INSTR_STATE_IDLE)
@@ -154,27 +191,15 @@ int kbase_instr_hwcnt_disable_internal(struct kbase_context *kctx)
 	kbdev->hwcnt.backend.state = KBASE_INSTR_STATE_DISABLED;
 	kbdev->hwcnt.backend.triggered = 0;
 
-	/* Disable interrupt */
-	irq_mask = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK));
-	kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK),
-				irq_mask & ~PRFCNT_SAMPLE_COMPLETED);
-
-	/* Disable the counters */
-	kbase_reg_write(kbdev, GPU_CONTROL_REG(PRFCNT_CONFIG), 0);
-
-	kbdev->hwcnt.kctx = NULL;
-	kbdev->hwcnt.addr = 0ULL;
-	kbdev->hwcnt.addr_bytes = 0ULL;
+	kbasep_instr_hwc_disable_hw_prfcnt(kbdev);
 
 	spin_unlock_irqrestore(&kbdev->hwcnt.lock, flags);
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, pm_flags);
 
-	dev_dbg(kbdev->dev, "HW counters dumping disabled for context %p",
+	dev_dbg(kbdev->dev, "HW counters dumping disabled for context %pK",
 									kctx);
 
-	err = 0;
- out:
-	return err;
+	return 0;
 }
 
 int kbase_instr_hwcnt_request_dump(struct kbase_context *kctx)
@@ -192,8 +217,13 @@ int kbase_instr_hwcnt_request_dump(struct kbase_context *kctx)
 
 	if (kbdev->hwcnt.backend.state != KBASE_INSTR_STATE_IDLE) {
 		/* HW counters are disabled or another dump is ongoing, or we're
-		 * resetting
+		 * resetting, or we are in unrecoverable error state.
 		 */
+		goto unlock;
+	}
+
+	if (kbase_is_gpu_removed(kbdev)) {
+		/* GPU has been removed by Arbiter */
 		goto unlock;
 	}
 
@@ -216,7 +246,7 @@ int kbase_instr_hwcnt_request_dump(struct kbase_context *kctx)
 	kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_COMMAND),
 					GPU_COMMAND_PRFCNT_SAMPLE);
 
-	dev_dbg(kbdev->dev, "HW counters dumping done for context %p", kctx);
+	dev_dbg(kbdev->dev, "HW counters dumping done for context %pK", kctx);
 
 	err = 0;
 
@@ -257,6 +287,10 @@ void kbase_instr_hwcnt_sample_done(struct kbase_device *kbdev)
 
 	spin_lock_irqsave(&kbdev->hwcnt.lock, flags);
 
+	/* If the state is in unrecoverable error, we already wake_up the waiter
+	 * and don't need to do any action when sample is done.
+	 */
+
 	if (kbdev->hwcnt.backend.state == KBASE_INSTR_STATE_FAULT) {
 		kbdev->hwcnt.backend.triggered = 1;
 		wake_up(&kbdev->hwcnt.backend.wait);
@@ -285,6 +319,8 @@ int kbase_instr_hwcnt_wait_for_dump(struct kbase_context *kctx)
 	if (kbdev->hwcnt.backend.state == KBASE_INSTR_STATE_FAULT) {
 		err = -EINVAL;
 		kbdev->hwcnt.backend.state = KBASE_INSTR_STATE_IDLE;
+	} else if (kbdev->hwcnt.backend.state == KBASE_INSTR_STATE_UNRECOVERABLE_ERROR) {
+		err = -EIO;
 	} else {
 		/* Dump done */
 		KBASE_DEBUG_ASSERT(kbdev->hwcnt.backend.state ==
@@ -305,12 +341,17 @@ int kbase_instr_hwcnt_clear(struct kbase_context *kctx)
 
 	spin_lock_irqsave(&kbdev->hwcnt.lock, flags);
 
-	/* Check it's the context previously set up and we're not already
-	 * dumping
+	/* Check it's the context previously set up and we're not in IDLE
+	 * state.
 	 */
 	if (kbdev->hwcnt.kctx != kctx || kbdev->hwcnt.backend.state !=
 							KBASE_INSTR_STATE_IDLE)
 		goto out;
+
+	if (kbase_is_gpu_removed(kbdev)) {
+		/* GPU has been removed by Arbiter */
+		goto out;
+	}
 
 	/* Clear the counters */
 	KBASE_KTRACE_ADD(kbdev, CORE_GPU_PRFCNT_CLEAR, NULL, 0);
@@ -325,9 +366,51 @@ out:
 }
 KBASE_EXPORT_SYMBOL(kbase_instr_hwcnt_clear);
 
+void kbase_instr_hwcnt_on_unrecoverable_error(struct kbase_device *kbdev)
+{
+	unsigned long flags;
+
+	lockdep_assert_held(&kbdev->hwaccess_lock);
+
+	spin_lock_irqsave(&kbdev->hwcnt.lock, flags);
+
+	/* If we already in unrecoverable error state, early return. */
+	if (kbdev->hwcnt.backend.state == KBASE_INSTR_STATE_UNRECOVERABLE_ERROR) {
+		spin_unlock_irqrestore(&kbdev->hwcnt.lock, flags);
+		return;
+	}
+
+	kbdev->hwcnt.backend.state = KBASE_INSTR_STATE_UNRECOVERABLE_ERROR;
+
+	/* Need to disable HW if it's not disabled yet. */
+	if (kbdev->hwcnt.backend.state != KBASE_INSTR_STATE_DISABLED)
+		kbasep_instr_hwc_disable_hw_prfcnt(kbdev);
+
+	/* Wake up any waiters. */
+	kbdev->hwcnt.backend.triggered = 1;
+	wake_up(&kbdev->hwcnt.backend.wait);
+
+	spin_unlock_irqrestore(&kbdev->hwcnt.lock, flags);
+}
+KBASE_EXPORT_SYMBOL(kbase_instr_hwcnt_on_unrecoverable_error);
+
+void kbase_instr_hwcnt_on_before_reset(struct kbase_device *kbdev)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&kbdev->hwcnt.lock, flags);
+
+	/* A reset is the only way to exit the unrecoverable error state */
+	if (kbdev->hwcnt.backend.state == KBASE_INSTR_STATE_UNRECOVERABLE_ERROR)
+		kbdev->hwcnt.backend.state = KBASE_INSTR_STATE_DISABLED;
+
+	spin_unlock_irqrestore(&kbdev->hwcnt.lock, flags);
+}
+KBASE_EXPORT_SYMBOL(kbase_instr_hwcnt_on_before_reset);
+
 int kbase_instr_backend_init(struct kbase_device *kbdev)
 {
-	int ret = 0;
+	spin_lock_init(&kbdev->hwcnt.lock);
 
 	kbdev->hwcnt.backend.state = KBASE_INSTR_STATE_DISABLED;
 
@@ -338,20 +421,20 @@ int kbase_instr_backend_init(struct kbase_device *kbdev)
 #ifdef CONFIG_MALI_PRFCNT_SET_SELECT_VIA_DEBUG_FS
 /* Use the build time option for the override default. */
 #if defined(CONFIG_MALI_PRFCNT_SET_SECONDARY)
-	kbdev->hwcnt.backend.override_counter_set = KBASE_HWCNT_SET_SECONDARY;
+	kbdev->hwcnt.backend.override_counter_set = KBASE_HWCNT_PHYSICAL_SET_SECONDARY;
 #elif defined(CONFIG_MALI_PRFCNT_SET_TERTIARY)
-	kbdev->hwcnt.backend.override_counter_set = KBASE_HWCNT_SET_TERTIARY;
+	kbdev->hwcnt.backend.override_counter_set = KBASE_HWCNT_PHYSICAL_SET_TERTIARY;
 #else
 	/* Default to primary */
-	kbdev->hwcnt.backend.override_counter_set = KBASE_HWCNT_SET_PRIMARY;
+	kbdev->hwcnt.backend.override_counter_set = KBASE_HWCNT_PHYSICAL_SET_PRIMARY;
 #endif
 #endif
-	return ret;
+	return 0;
 }
 
 void kbase_instr_backend_term(struct kbase_device *kbdev)
 {
-	(void)kbdev;
+	CSTD_UNUSED(kbdev);
 }
 
 #ifdef CONFIG_MALI_PRFCNT_SET_SELECT_VIA_DEBUG_FS
@@ -363,8 +446,8 @@ void kbase_instr_backend_debugfs_init(struct kbase_device *kbdev)
 	 *
 	 * Valid inputs are the values accepted bythe SET_SELECT bits of the
 	 * PRFCNT_CONFIG register as defined in the architecture specification.
-	*/
-	debugfs_create_u8("hwcnt_set_select", S_IRUGO | S_IWUSR,
+	 */
+	debugfs_create_u8("hwcnt_set_select", 0644,
 			  kbdev->mali_debugfs_directory,
 			  (u8 *)&kbdev->hwcnt.backend.override_counter_set);
 }

@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2012-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2012-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
  * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
+ * of such GNU license.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,8 +16,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, you can access it online at
  * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
  *
  */
 
@@ -61,7 +59,7 @@ int kbase_sync_fence_stream_create(const char *name, int *const out_fd)
 }
 
 #if !MALI_USE_CSF
-int kbase_sync_fence_out_create(struct kbase_jd_atom *katom, int stream_fd)
+struct sync_file *kbase_sync_fence_out_create(struct kbase_jd_atom *katom, int stream_fd)
 {
 #if (KERNEL_VERSION(4, 10, 0) > LINUX_VERSION_CODE)
 	struct fence *fence;
@@ -69,11 +67,10 @@ int kbase_sync_fence_out_create(struct kbase_jd_atom *katom, int stream_fd)
 	struct dma_fence *fence;
 #endif
 	struct sync_file *sync_file;
-	int fd;
 
 	fence = kbase_fence_out_new(katom);
 	if (!fence)
-		return -ENOMEM;
+		return NULL;
 
 #if (KERNEL_VERSION(4, 9, 67) >= LINUX_VERSION_CODE)
 	/* Take an extra reference to the fence on behalf of the sync_file.
@@ -91,19 +88,9 @@ int kbase_sync_fence_out_create(struct kbase_jd_atom *katom, int stream_fd)
 		dma_fence_put(fence);
 #endif
 		kbase_fence_out_remove(katom);
-		return -ENOMEM;
+		return NULL;
 	}
-
-	fd = get_unused_fd_flags(O_CLOEXEC);
-	if (fd < 0) {
-		fput(sync_file->file);
-		kbase_fence_out_remove(katom);
-		return fd;
-	}
-
-	fd_install(fd, sync_file->file);
-
-	return fd;
+	return sync_file;
 }
 
 int kbase_sync_fence_in_from_fd(struct kbase_jd_atom *katom, int fd)
@@ -264,7 +251,7 @@ void kbase_sync_fence_in_cancel_wait(struct kbase_jd_atom *katom)
 	kbasep_remove_waiting_soft_job(katom);
 	kbase_finish_soft_job(katom);
 
-	if (jd_done_nolock(katom, NULL))
+	if (jd_done_nolock(katom, true))
 		kbase_js_sched_all(katom->kctx->kbdev);
 }
 

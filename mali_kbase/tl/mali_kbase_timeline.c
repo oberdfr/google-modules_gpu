@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2015-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2015-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
  * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
+ * of such GNU license.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,8 +16,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, you can access it online at
  * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
  *
  */
 
@@ -188,7 +186,7 @@ static void kbase_tlstream_current_devfreq_target(struct kbase_device *kbdev)
 
 int kbase_timeline_io_acquire(struct kbase_device *kbdev, u32 flags)
 {
-	int ret;
+	int ret = 0;
 	u32 timeline_flags = TLSTREAM_ENABLED | flags;
 	struct kbase_timeline *timeline = kbdev->timeline;
 
@@ -199,8 +197,7 @@ int kbase_timeline_io_acquire(struct kbase_device *kbdev, u32 flags)
 		if (flags & BASE_TLSTREAM_ENABLE_CSFFW_TRACEPOINTS) {
 			ret = kbase_csf_tl_reader_start(
 				&timeline->csf_tl_reader, kbdev);
-			if (ret)
-			{
+			if (ret) {
 				atomic_set(timeline->timeline_flags, 0);
 				return ret;
 			}
@@ -225,13 +222,6 @@ int kbase_timeline_io_acquire(struct kbase_device *kbdev, u32 flags)
 
 		timeline->obj_header_btc = obj_desc_header_size;
 		timeline->aux_header_btc = aux_desc_header_size;
-
-		/* Start autoflush timer. */
-		atomic_set(&timeline->autoflush_timer_active, 1);
-		rcode = mod_timer(
-				&timeline->autoflush_timer,
-				jiffies + msecs_to_jiffies(AUTOFLUSH_INTERVAL));
-		CSTD_UNUSED(rcode);
 
 #if !MALI_USE_CSF
 		/* If job dumping is enabled, readjust the software event's
@@ -260,23 +250,44 @@ int kbase_timeline_io_acquire(struct kbase_device *kbdev, u32 flags)
 		kbase_tlstream_current_devfreq_target(kbdev);
 #endif /* CONFIG_MALI_DEVFREQ */
 
+		/* Start the autoflush timer.
+		 * We must do this after creating timeline objects to ensure we
+		 * don't auto-flush the streams which will be reset during the
+		 * summarization process.
+		 */
+		atomic_set(&timeline->autoflush_timer_active, 1);
+		rcode = mod_timer(&timeline->autoflush_timer,
+				  jiffies +
+					  msecs_to_jiffies(AUTOFLUSH_INTERVAL));
+		CSTD_UNUSED(rcode);
 	} else {
 		ret = -EBUSY;
 	}
 
+	if (ret >= 0)
+		timeline->last_acquire_time = ktime_get();
+
 	return ret;
 }
 
-void kbase_timeline_streams_flush(struct kbase_timeline *timeline)
+int kbase_timeline_streams_flush(struct kbase_timeline *timeline)
 {
 	enum tl_stream_type stype;
-
+	bool has_bytes = false;
+	size_t nbytes = 0;
 #if MALI_USE_CSF
-	kbase_csf_tl_reader_flush_buffer(&timeline->csf_tl_reader);
+	int ret = kbase_csf_tl_reader_flush_buffer(&timeline->csf_tl_reader);
+
+	if (ret > 0)
+		has_bytes = true;
 #endif
 
-	for (stype = 0; stype < TL_STREAM_TYPE_COUNT; stype++)
-		kbase_tlstream_flush_stream(&timeline->streams[stype]);
+	for (stype = 0; stype < TL_STREAM_TYPE_COUNT; stype++) {
+		nbytes = kbase_tlstream_flush_stream(&timeline->streams[stype]);
+		if (nbytes > 0)
+			has_bytes = true;
+	}
+	return has_bytes ? 0 : -EIO;
 }
 
 void kbase_timeline_streams_body_reset(struct kbase_timeline *timeline)

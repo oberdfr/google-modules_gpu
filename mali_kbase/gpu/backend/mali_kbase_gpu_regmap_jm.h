@@ -1,27 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  *
- * (C) COPYRIGHT ARM Limited. All rights reserved.
- *
- * This program is free software and is provided to you under the terms of the
- * GNU General Public License version 2 as published by the Free Software
- * Foundation, and any use by you of this program is subject to the terms
- * of such GNU licence.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, you can access it online at
- * http://www.gnu.org/licenses/gpl-2.0.html.
- *
- * SPDX-License-Identifier: GPL-2.0
- *
- *//* SPDX-License-Identifier: GPL-2.0 */
-/*
- *
- * (C) COPYRIGHT 2019-2020 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2019-2021 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -38,11 +18,10 @@
  * http://www.gnu.org/licenses/gpl-2.0.html.
  *
  */
-
 #ifndef _KBASE_GPU_REGMAP_JM_H_
 #define _KBASE_GPU_REGMAP_JM_H_
 
-#if MALI_USE_CSF
+#if MALI_USE_CSF && defined(__KERNEL__)
 #error "Cannot be compiled with CSF"
 #endif
 
@@ -80,9 +59,6 @@
 
 #define CORE_FEATURES           0x008   /* (RO) Shader Core Features */
 #define JS_PRESENT              0x01C   /* (RO) Job slots present */
-#define LATEST_FLUSH            0x038   /* (RO) Flush ID of latest
-					 * clean-and-invalidate operation
-					 */
 
 #define PRFCNT_BASE_LO   0x060  /* (RW) Performance counter memory
 				 * region base address, low word
@@ -195,6 +171,7 @@
 /* Possible values of JS_CONFIG and JS_CONFIG_NEXT registers */
 #define JS_CONFIG_START_FLUSH_NO_ACTION        (0u << 0)
 #define JS_CONFIG_START_FLUSH_CLEAN            (1u << 8)
+#define JS_CONFIG_START_FLUSH_INV_SHADER_OTHER (2u << 8)
 #define JS_CONFIG_START_FLUSH_CLEAN_INVALIDATE (3u << 8)
 #define JS_CONFIG_START_MMU                    (1u << 10)
 #define JS_CONFIG_JOB_CHAIN_FLAG               (1u << 11)
@@ -280,6 +257,15 @@
 #define GPU_COMMAND_CLEAN_CACHES       0x07 /* Clean all caches */
 #define GPU_COMMAND_CLEAN_INV_CACHES   0x08 /* Clean and invalidate all caches */
 #define GPU_COMMAND_SET_PROTECTED_MODE 0x09 /* Places the GPU in protected mode */
+
+/* GPU_COMMAND cache flush alias to CSF command payload */
+#define GPU_COMMAND_CACHE_CLN_INV_L2 GPU_COMMAND_CLEAN_INV_CACHES
+#define GPU_COMMAND_CACHE_CLN_INV_L2_LSC GPU_COMMAND_CLEAN_INV_CACHES
+#define GPU_COMMAND_CACHE_CLN_INV_FULL GPU_COMMAND_CLEAN_INV_CACHES
+
+/* Merge cache flush commands */
+#define GPU_COMMAND_FLUSH_CACHE_MERGE(cmd1, cmd2)                              \
+	((cmd1) > (cmd2) ? (cmd1) : (cmd2))
 
 /* IRQ flags */
 #define GPU_FAULT               (1 << 0)    /* A GPU Fault has occurred */

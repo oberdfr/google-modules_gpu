@@ -23,7 +23,7 @@
  */
 
 /*
- * Copyright 2020 Google LLC.
+ * Copyright 2020-2021 Google LLC.
  *
  * Author: Sidath Senanayake <sidaths@google.com>
  */
@@ -40,6 +40,14 @@
 #define POWER_MANAGEMENT_CALLBACKS (&pm_callbacks)
 
 /**
+ * Clock Rate Trace configuration functions
+ *
+ * Attached value: pointer to @ref kbase_clk_rate_trace_op_conf
+ * Default value: See @ref kbase_clk_rate_trace_op_conf
+ */
+#define CLK_RATE_TRACE_OPS (&pixel_clk_rate_trace_ops)
+
+/**
  * Platform specific configuration functions
  *
  * Attached value: pointer to @ref kbase_platform_funcs_conf
@@ -48,6 +56,7 @@
 #define PLATFORM_FUNCS (&platform_funcs)
 
 extern struct kbase_pm_callback_conf pm_callbacks;
+extern struct kbase_clk_rate_trace_op_conf pixel_clk_rate_trace_ops;
 extern struct kbase_platform_funcs_conf platform_funcs;
 
 #ifdef CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING
@@ -78,6 +87,7 @@ extern struct protected_mode_ops pixel_protected_ops;
 #endif /* CONFIG_MALI_MIDGARD_DVFS */
 
 /* SOC level includes */
+#include <soc/google/bcl.h>
 #if IS_ENABLED(CONFIG_EXYNOS_PD)
 #include <soc/google/exynos-pd.h>
 #endif
@@ -88,7 +98,6 @@ extern struct protected_mode_ops pixel_protected_ops;
 #endif /* CONFIG_MALI_PIXEL_GPU_QOS */
 
 /* Pixel integration includes */
-#include "pixel_gpu_debug.h"
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 #include "pixel_gpu_dvfs.h"
 #endif /* CONFIG_MALI_MIDGARD_DVFS */
@@ -96,6 +105,44 @@ extern struct protected_mode_ops pixel_protected_ops;
 /* All port specific fields go here */
 #define OF_DATA_NUM_MAX 128
 #define CPU_FREQ_MAX INT_MAX
+
+enum gpu_power_state {
+	/*
+	 * Mali GPUs have a hierarchy of power domains, which must be powered up
+	 * in order and powered down in reverse order. Individual architectures
+	 * and implementations may not allow each domain to be powered up or
+	 * down independently of the others.
+	 *
+	 * The power state can thus be defined as the highest-level domain that
+	 * is currently powered on.
+	 *
+	 * GLOBAL: The frontend (JM, CSF), including registers.
+	 * COREGROUP: The L2 and AXI interface, Tiler, and MMU.
+	 * STACKS: The shader cores.
+	 */
+	GPU_POWER_LEVEL_OFF       = 0,
+	GPU_POWER_LEVEL_GLOBAL    = 1,
+	GPU_POWER_LEVEL_COREGROUP = 2,
+	GPU_POWER_LEVEL_STACKS    = 3,
+};
+
+/**
+ * enum gpu_pm_domain - Power domains on the GPU.
+ *
+ * This enum lists the different power domains present on the Mali GPU.
+ */
+enum gpu_pm_domain {
+	/**
+	 * &GPU_PM_DOMAIN_TOP: GPU Top Level power domain
+	 */
+	GPU_PM_DOMAIN_TOP = 0,
+	/**
+	 * &GPU_PM_DOMAIN_CORES: GPU shader stacks power domain
+	 */
+	GPU_PM_DOMAIN_CORES,
+	/* Insert new power domains here. */
+	GPU_PM_DOMAIN_COUNT,
+};
 
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 /**
@@ -115,11 +162,8 @@ struct gpu_dvfs_opp_metrics {
 /**
  * struct gpu_dvfs_opp - Data for a GPU operating point.
  *
- * @clk0:         The frequency (in kHz) of GPU Top Level clock.
- * @clk1:         The frequency (in kHz) of GPU shader cores.
- *
- * @vol0:         The voltage (in mV) of the GPU Top Level power domain. Obtained via ECT.
- * @vol1:         The voltage (in mV) of the GPU shader cores domain. Obtained via ECT.
+ * @clk:          The frequencies (in kHz) of the GPU clocks.
+ * @vol:          The voltages (in mV) of each GPU power domain. Obtained via ECT.
  *
  * @util_min:     The minimum threshold of utilization before the governor should consider a lower
  *                operating point.
@@ -142,12 +186,10 @@ struct gpu_dvfs_opp_metrics {
  */
 struct gpu_dvfs_opp {
 	/* Clocks */
-	unsigned int clk0;
-	unsigned int clk1;
+	unsigned int clk[GPU_DVFS_CLK_COUNT];
 
 	/* Voltages */
-	unsigned int vol0;
-	unsigned int vol1;
+	unsigned int vol[GPU_DVFS_CLK_COUNT];
 
 	int util_min;
 	int util_max;
@@ -166,8 +208,10 @@ struct gpu_dvfs_opp {
 	} qos;
 };
 
+#ifdef CONFIG_MALI_PIXEL_GPU_QOS
 /* Forward declaration of QOS request */
 struct gpu_dvfs_qos_vote;
+#endif /* CONFIG_MALI_PIXEL_GPU_QOS */
 
 /* Forward declaration of per-UID metrics */
 struct gpu_dvfs_metrics_uid_stats;
@@ -178,13 +222,17 @@ struct gpu_dvfs_metrics_uid_stats;
  *
  * @kbdev:                      The &struct kbase_device for the GPU.
  *
- * @gpu_log_level: Stores the log level which can be used as a default
- *
- * @pm.state_lost:              Stores whether GPU state has been lost or not.
+ * @pm.lock:                    &struct mutex used to ensure serialization of calls to kernel power
+ *                              management functions on the GPU power domain devices held in
+ *                              &pm.domain_devs.
+ * @pm.state:                   Holds the current power state of the GPU.
+ * @pm.domain_devs              Virtual pm domain devices.
+ * @pm.domain_links             Links from pm domain devices to the real device.
  * @pm.domain:                  The power domain the GPU is in.
  * @pm.status_reg_offset:       Register offset to the G3D status in the PMU. Set via DT.
  * @pm.status_local_power_mask: Mask to extract power status of the GPU. Set via DT.
  * @pm.autosuspend_delay:       Delay (in ms) before PM runtime should trigger auto suspend.
+ * @pm.bcl_dev:                 Pointer to the Battery Current Limiter device.
  *
  * @tz_protection_enabled:      Storing the secure rendering state of the GPU. Access to this is
  *                              controlled by the HW access lock for the GPU associated with @kbdev.
@@ -196,6 +244,8 @@ struct gpu_dvfs_metrics_uid_stats;
  *                              incoming utilization data from the Mali driver into DVFS changes on
  *                              the GPU.
  * @dvfs.util:                  Stores incoming utilization metrics from the Mali driver.
+ * @dvfs.util_gl:               Percentage of utilization from a non-OpenCL work
+ * @dvfs.util_cl:               Percentage of utilization from a OpenCL work.
  * @dvfs.clockdown_wq:          Delayed workqueue for clocking down the GPU after it has been idle
  *                              for a period of time.
  * @dvfs.clockdown_work:        &struct delayed_work_struct storing link to Pixel GPU code to set
@@ -203,8 +253,7 @@ struct gpu_dvfs_metrics_uid_stats;
  * @dvfs.clockdown_hysteresis:  The time (in ms) the GPU can remained powered off before being set
  *                              to the minimum throughput level. Set via DT.
  *
- * @dvfs.gpu0_cal_id:           ID for the GPU Top Level clock domain. Set via DT.
- * @dvfs.gpu1_cal_id:           ID for the GPU shader stack clock domain. Set via DT.
+ * @dvfs.clks:                  Array of clock data per GPU clock.
  *
  * @dvfs.table:                 Pointer to the DVFS table which is an array of &struct gpu_dvfs_opp
  * @dvfs.table_size:            Number of levels in in @dvfs.table.
@@ -212,13 +261,16 @@ struct gpu_dvfs_metrics_uid_stats;
  * @dvfs.level_target:          The level at which the GPU should run at next power on.
  * @dvfs.level_max:             The maximum throughput level available on the GPU. Set via DT.
  * @dvfs.level_min:             The minimum throughput level available of the GPU. Set via DT.
- * @dvfs.level_scaling_max:     The maximum throughput level the GPU can run at. Set via sysfs.
- * @dvfs.level_scaling_min:     The minimum throughput level the GPU can run at. Set via sysfs.
+ * @dvfs.level_scaling_max:     The maximum throughput level the GPU can run at. Should only be set
+ *                              via &gpu_dvfs_update_level_lock().
+ * @dvfs.level_scaling_min:     The minimum throughput level the GPU can run at. Should only be set
+ *                              via &gpu_dvfs_update_level_lock().
  *
  * @dvfs.metrics.last_time:        The last time (in ns) since device boot that the DVFS metric
  *                                 logic was run.
  * @dvfs.metrics.last_power_state: The GPU's power state when the DVFS metric logic was last run.
  * @dvfs.metrics.last_level:       The GPU's level when the DVFS metric logic was last run.
+ * @dvfs.metrics.transtab:         Pointer to the DVFS transition table.
  * @dvfs.metrics.js_uid_stats:     An array of pointers to the per-UID stats blocks currently
  *                                 resident in each of the GPU's job slots. Access is controlled by
  *                                 the hwaccess lock.
@@ -245,9 +297,13 @@ struct gpu_dvfs_metrics_uid_stats;
 struct pixel_context {
 	struct kbase_device *kbdev;
 
-	enum gpu_log_level gpu_log_level;
 	struct {
-		bool state_lost;
+		struct mutex lock;
+		enum gpu_power_state state;
+
+		struct device *domain_devs[GPU_PM_DOMAIN_COUNT];
+		struct device_link *domain_links[GPU_PM_DOMAIN_COUNT];
+
 		struct exynos_pm_domain *domain;
 		unsigned int status_reg_offset;
 		unsigned int status_local_power_mask;
@@ -256,6 +312,9 @@ struct pixel_context {
 		struct gpu_dvfs_opp_metrics power_off_metrics;
 		struct gpu_dvfs_opp_metrics power_on_metrics;
 #endif /* CONFIG_MALI_MIDGARD_DVFS */
+#if IS_ENABLED(CONFIG_GOOGLE_BCL)
+		struct bcl_device *bcl_dev;
+#endif
 	} pm;
 
 #ifdef CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING
@@ -269,13 +328,14 @@ struct pixel_context {
 		struct workqueue_struct *control_wq;
 		struct work_struct control_work;
 		atomic_t util;
+		atomic_t util_gl;
+		atomic_t util_cl;
 
 		struct workqueue_struct *clockdown_wq;
 		struct delayed_work clockdown_work;
 		unsigned int clockdown_hysteresis;
 
-		int gpu0_cal_id;
-		int gpu1_cal_id;
+		struct gpu_dvfs_clk clks[GPU_DVFS_CLK_COUNT];
 
 		struct gpu_dvfs_opp *table;
 		int table_size;
@@ -285,6 +345,8 @@ struct pixel_context {
 		int level_min;
 		int level_scaling_max;
 		int level_scaling_min;
+		int level_scaling_compute_min;
+		struct gpu_dvfs_level_lock level_locks[GPU_DVFS_LEVEL_LOCK_COUNT];
 
 		struct {
 			enum gpu_dvfs_governor_type curr;
@@ -295,6 +357,7 @@ struct pixel_context {
 			u64 last_time;
 			bool last_power_state;
 			int last_level;
+			int *transtab;
 			struct gpu_dvfs_metrics_uid_stats *js_uid_stats[BASE_JM_MAX_NR_SLOTS];
 			struct list_head uid_stats_list;
 		} metrics;
@@ -322,7 +385,6 @@ struct pixel_context {
 #ifdef CONFIG_MALI_PIXEL_GPU_THERMAL
 		struct {
 			struct thermal_cooling_device *cdev;
-			int level_limit;
 		} tmu;
 #endif /* CONFIG_MALI_PIXEL_GPU_THERMAL */
 	} dvfs;
