@@ -1739,11 +1739,6 @@ static void jd_cancel_worker(struct kthread_work *data)
 	mutex_lock(&jctx->lock);
 
 	jd_done_nolock(katom, true);
-	/* Because we're zapping, we're not adding any more jobs to this ctx, so no need to
-	 * schedule the context. There's also no need for the jsctx_mutex to have been taken
-	 * around this too.
-	 */
-	KBASE_DEBUG_ASSERT(!need_to_try_schedule_context);
 
 	/* katom may have been freed now, do not use! */
 	mutex_unlock(&jctx->lock);
