@@ -87,6 +87,7 @@
 #include <linux/errno.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
+#include <linux/of_irq.h>
 #include <linux/platform_device.h>
 #include <linux/of_platform.h>
 #include <linux/miscdevice.h>
@@ -507,32 +508,38 @@ int assign_irqs(struct kbase_device *kbdev)
 	pdev = to_platform_device(kbdev->dev);
 	/* 3 IRQ resources */
 	for (i = 0; i < 3; i++) {
-		struct resource *irq_res;
+		struct resource irq_res;
+		int irq;
 		int irqtag;
 
-		irq_res = platform_get_resource(pdev, IORESOURCE_IRQ, i);
-		if (!irq_res) {
+		irq = platform_get_irq(pdev, i);
+		if (irq < 0) {
 			dev_err(kbdev->dev, "No IRQ resource at index %d\n", i);
-			return -ENOENT;
+			return irq;
 		}
 
 #if IS_ENABLED(CONFIG_OF)
-		if (!strncasecmp(irq_res->name, "JOB", 4)) {
+		if (irq != of_irq_to_resource(kbdev->dev->of_node, i, &irq_res)) {
+			dev_err(kbdev->dev, "Failed to get irq resource at index %d\n", i);
+			return irq;
+		}
+
+		if (!strncasecmp(irq_res.name, "JOB", 4)) {
 			irqtag = JOB_IRQ_TAG;
-		} else if (!strncasecmp(irq_res->name, "MMU", 4)) {
+		} else if (!strncasecmp(irq_res.name, "MMU", 4)) {
 			irqtag = MMU_IRQ_TAG;
-		} else if (!strncasecmp(irq_res->name, "GPU", 4)) {
+		} else if (!strncasecmp(irq_res.name, "GPU", 4)) {
 			irqtag = GPU_IRQ_TAG;
 		} else {
 			dev_err(&pdev->dev, "Invalid irq res name: '%s'\n",
-				irq_res->name);
+				irq_res.name);
 			return -EINVAL;
 		}
 #else
 		irqtag = i;
 #endif /* CONFIG_OF */
-		kbdev->irqs[irqtag].irq = irq_res->start;
-		kbdev->irqs[irqtag].flags = irq_res->flags & IRQF_TRIGGER_MASK;
+		kbdev->irqs[irqtag].irq = irq;
+		kbdev->irqs[irqtag].flags = irq_res.flags & IRQF_TRIGGER_MASK;
 	}
 
 	return 0;
