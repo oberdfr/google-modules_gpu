@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  *
- * (C) COPYRIGHT 2017-2021 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2017-2022 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -169,34 +169,6 @@ struct kbase_ioctl_hwcnt_reader_setup {
 
 #define KBASE_IOCTL_HWCNT_READER_SETUP \
 	_IOW(KBASE_IOCTL_TYPE, 8, struct kbase_ioctl_hwcnt_reader_setup)
-
-/**
- * struct kbase_ioctl_hwcnt_enable - Enable hardware counter collection
- * @dump_buffer:  GPU address to write counters to
- * @fe_bm:        counters selection bitmask (Front end)
- * @shader_bm:    counters selection bitmask (Shader)
- * @tiler_bm:     counters selection bitmask (Tiler)
- * @mmu_l2_bm:    counters selection bitmask (MMU_L2)
- */
-struct kbase_ioctl_hwcnt_enable {
-	__u64 dump_buffer;
-	__u32 fe_bm;
-	__u32 shader_bm;
-	__u32 tiler_bm;
-	__u32 mmu_l2_bm;
-};
-
-/* This IOCTL is deprecated as of R33, and will be removed in R35. */
-#define KBASE_IOCTL_HWCNT_ENABLE \
-	_IOW(KBASE_IOCTL_TYPE, 9, struct kbase_ioctl_hwcnt_enable)
-
-/* This IOCTL is deprecated as of R33, and will be removed in R35. */
-#define KBASE_IOCTL_HWCNT_DUMP \
-	_IO(KBASE_IOCTL_TYPE, 10)
-
-/* This IOCTL is deprecated as of R33, and will be removed in R35. */
-#define KBASE_IOCTL_HWCNT_CLEAR \
-	_IO(KBASE_IOCTL_TYPE, 11)
 
 /**
  * struct kbase_ioctl_hwcnt_values - Values to set dummy the dummy counters to.
@@ -543,7 +515,7 @@ struct kbase_ioctl_sticky_resource_map {
 	_IOW(KBASE_IOCTL_TYPE, 29, struct kbase_ioctl_sticky_resource_map)
 
 /**
- * struct kbase_ioctl_sticky_resource_map - Unmap a resource mapped which was
+ * struct kbase_ioctl_sticky_resource_unmap - Unmap a resource mapped which was
  *                                          previously permanently mapped
  * @count: Number of resources
  * @address: Array of __u64 GPU addresses of the external resources to unmap

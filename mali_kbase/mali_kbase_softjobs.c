@@ -97,7 +97,8 @@ static int kbasep_read_soft_event_status(
 	unsigned char *mapped_evt;
 	struct kbase_vmap_struct map;
 
-	mapped_evt = kbase_vmap(kctx, evt, sizeof(*mapped_evt), &map);
+	mapped_evt = kbase_vmap_prot(kctx, evt, sizeof(*mapped_evt),
+				     KBASE_REG_CPU_RD, &map);
 	if (!mapped_evt)
 		return -EFAULT;
 
@@ -118,7 +119,8 @@ static int kbasep_write_soft_event_status(
 	    (new_status != BASE_JD_SOFT_EVENT_RESET))
 		return -EINVAL;
 
-	mapped_evt = kbase_vmap(kctx, evt, sizeof(*mapped_evt), &map);
+	mapped_evt = kbase_vmap_prot(kctx, evt, sizeof(*mapped_evt),
+				     KBASE_REG_CPU_WR, &map);
 	if (!mapped_evt)
 		return -EFAULT;
 
@@ -210,12 +212,12 @@ void kbase_soft_event_wait_callback(struct kbase_jd_atom *katom)
 {
 	struct kbase_context *kctx = katom->kctx;
 
-	mutex_lock(&kctx->jctx.lock);
+	rt_mutex_lock(&kctx->jctx.lock);
 	kbasep_remove_waiting_soft_job(katom);
 	kbase_finish_soft_job(katom);
-	if (jd_done_nolock(katom, NULL))
+	if (jd_done_nolock(katom, true))
 		kbase_js_sched_all(kctx->kbdev);
-	mutex_unlock(&kctx->jctx.lock);
+	rt_mutex_unlock(&kctx->jctx.lock);
 }
 #endif
 
@@ -226,9 +228,9 @@ static void kbasep_soft_event_complete_job(struct kthread_work *work)
 	struct kbase_context *kctx = katom->kctx;
 	int resched;
 
-	mutex_lock(&kctx->jctx.lock);
-	resched = jd_done_nolock(katom, NULL);
-	mutex_unlock(&kctx->jctx.lock);
+	rt_mutex_lock(&kctx->jctx.lock);
+	resched = jd_done_nolock(katom, true);
+	rt_mutex_unlock(&kctx->jctx.lock);
 
 	if (resched)
 		kbase_js_sched_all(kctx->kbdev);
@@ -305,7 +307,7 @@ static void kbase_fence_debug_check_atom(struct kbase_jd_atom *katom)
 						 info.fence,
 						 info.name,
 						 kbase_sync_status_string(info.status));
-				 }
+				}
 			}
 
 			kbase_fence_debug_check_atom(dep);
@@ -357,9 +359,9 @@ static void kbase_fence_debug_wait_timeout_worker(struct kthread_work *work)
 	struct kbase_jd_atom *katom = w->katom;
 	struct kbase_context *kctx = katom->kctx;
 
-	mutex_lock(&kctx->jctx.lock);
+	rt_mutex_lock(&kctx->jctx.lock);
 	kbase_fence_debug_wait_timeout(katom);
-	mutex_unlock(&kctx->jctx.lock);
+	rt_mutex_unlock(&kctx->jctx.lock);
 
 	kfree(w);
 }
@@ -479,7 +481,7 @@ int kbase_soft_event_update(struct kbase_context *kctx,
 {
 	int err = 0;
 
-	mutex_lock(&kctx->jctx.lock);
+	rt_mutex_lock(&kctx->jctx.lock);
 
 	if (kbasep_write_soft_event_status(kctx, event, new_status)) {
 		err = -ENOENT;
@@ -490,7 +492,7 @@ int kbase_soft_event_update(struct kbase_context *kctx,
 		kbasep_complete_triggered_soft_events(kctx, event);
 
 out:
-	mutex_unlock(&kctx->jctx.lock);
+	rt_mutex_unlock(&kctx->jctx.lock);
 
 	return err;
 }
@@ -498,7 +500,7 @@ out:
 static void kbasep_soft_event_cancel_job(struct kbase_jd_atom *katom)
 {
 	katom->event_code = BASE_JD_EVENT_JOB_CANCELLED;
-	if (jd_done_nolock(katom, NULL))
+	if (jd_done_nolock(katom, true))
 		kbase_js_sched_all(katom->kctx->kbdev);
 }
 
@@ -1205,8 +1207,8 @@ static int kbase_jit_allocate_process(struct kbase_jd_atom *katom)
 		 * Write the address of the JIT allocation to the user provided
 		 * GPU allocation.
 		 */
-		ptr = kbase_vmap(kctx, info->gpu_alloc_addr, sizeof(*ptr),
-				&mapping);
+		ptr = kbase_vmap_prot(kctx, info->gpu_alloc_addr, sizeof(*ptr),
+				KBASE_REG_CPU_WR, &mapping);
 		if (!ptr) {
 			/*
 			 * Leave the allocations "live" as the JIT free atom
@@ -1353,10 +1355,10 @@ static void kbasep_jit_finish_worker(struct kthread_work *work)
 	struct kbase_context *kctx = katom->kctx;
 	int resched;
 
-	mutex_lock(&kctx->jctx.lock);
+	rt_mutex_lock(&kctx->jctx.lock);
 	kbase_finish_soft_job(katom);
-	resched = jd_done_nolock(katom, NULL);
-	mutex_unlock(&kctx->jctx.lock);
+	resched = jd_done_nolock(katom, true);
+	rt_mutex_unlock(&kctx->jctx.lock);
 
 	if (resched)
 		kbase_js_sched_all(kctx->kbdev);
@@ -1395,9 +1397,8 @@ static void kbase_jit_free_finish(struct kbase_jd_atom *katom)
 	lockdep_assert_held(&kctx->jctx.lock);
 
 	ids = kbase_jit_free_get_ids(katom);
-	if (WARN_ON(ids == NULL)) {
+	if (WARN_ON(ids == NULL))
 		return;
-	}
 
 	/* Remove this atom from the jit_atoms_head list */
 	list_del(&katom->jit_node);
@@ -1659,8 +1660,12 @@ int kbase_prepare_soft_job(struct kbase_jd_atom *katom)
 			if (copy_to_user((__user void *)(uintptr_t)katom->jc,
 					 &fence, sizeof(fence)) != 0) {
 				kbase_sync_fence_out_remove(katom);
-				put_unused_fd(fd);
-				fput(sync_file->file);
+				/* fd should have been closed here, but there's
+				 * no good way of doing that. Since
+				 * copy_to_user() very rarely fails, and the fd
+				 * will get closed on process termination this
+				 * won't be a problem.
+				 */
 				fence.basep.fd = -EINVAL;
 				return -EINVAL;
 			}
@@ -1783,7 +1788,7 @@ void kbase_resume_suspended_soft_jobs(struct kbase_device *kbdev)
 			&local_suspended_soft_jobs, dep_item[1]) {
 		struct kbase_context *kctx = katom_iter->kctx;
 
-		mutex_lock(&kctx->jctx.lock);
+		rt_mutex_lock(&kctx->jctx.lock);
 
 		/* Remove from the global list */
 		list_del(&katom_iter->dep_item[1]);
@@ -1792,12 +1797,12 @@ void kbase_resume_suspended_soft_jobs(struct kbase_device *kbdev)
 
 		if (kbase_process_soft_job(katom_iter) == 0) {
 			kbase_finish_soft_job(katom_iter);
-			resched |= jd_done_nolock(katom_iter, NULL);
+			resched |= jd_done_nolock(katom_iter, true);
 #ifdef CONFIG_MALI_ARBITER_SUPPORT
 			atomic_dec(&kbdev->pm.gpu_users_waiting);
 #endif /* CONFIG_MALI_ARBITER_SUPPORT */
 		}
-		mutex_unlock(&kctx->jctx.lock);
+		rt_mutex_unlock(&kctx->jctx.lock);
 	}
 
 	if (resched)

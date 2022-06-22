@@ -19,8 +19,8 @@
  *
  */
 
-#ifndef _UAPI_KBASE_GPU_REGMAP_CSF_H_
-#define _UAPI_KBASE_GPU_REGMAP_CSF_H_
+#ifndef _KBASE_GPU_REGMAP_CSF_H_
+#define _KBASE_GPU_REGMAP_CSF_H_
 
 #include <linux/types.h>
 
@@ -250,6 +250,17 @@
 		 GPU_COMMAND_FLUSH_PAYLOAD_LSC_CLEAN_INVALIDATE |              \
 		 GPU_COMMAND_FLUSH_PAYLOAD_OTHER_NONE))
 
+/* Clean and invalidate L2, LSC, and Other caches */
+#define GPU_COMMAND_CACHE_CLN_INV_FULL                                         \
+	GPU_COMMAND_CODE_PAYLOAD(                                              \
+		GPU_COMMAND_CODE_FLUSH_CACHES,                                 \
+		(GPU_COMMAND_FLUSH_PAYLOAD_L2_CLEAN_INVALIDATE |               \
+		 GPU_COMMAND_FLUSH_PAYLOAD_LSC_CLEAN_INVALIDATE |              \
+		 GPU_COMMAND_FLUSH_PAYLOAD_OTHER_INVALIDATE))
+
+/* Merge cache flush commands */
+#define GPU_COMMAND_FLUSH_CACHE_MERGE(cmd1, cmd2) ((cmd1) | (cmd2))
+
 /* Places the GPU in protected mode */
 #define GPU_COMMAND_SET_PROTECTED_MODE \
 	GPU_COMMAND_CODE_PAYLOAD(GPU_COMMAND_CODE_SET_PROTECTED_MODE, 0)
@@ -354,4 +365,4 @@
 /* GPU_CONTROL_MCU.GPU_IRQ_RAWSTAT */
 #define PRFCNT_SAMPLE_COMPLETED (1 << 16)   /* Set when performance count sample has completed */
 
-#endif /* _UAPI_KBASE_GPU_REGMAP_CSF_H_ */
+#endif /* _KBASE_GPU_REGMAP_CSF_H_ */
