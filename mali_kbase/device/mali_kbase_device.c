@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2010-2021 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2010-2022 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -166,8 +166,11 @@ void kbase_device_pcm_dev_term(struct kbase_device *const kbdev)
  * @nb: notifier block - used to retrieve kbdev pointer
  * @action: action (unused)
  * @data: data pointer (unused)
+ *
  * This function simply lists memory usage by the Mali driver, per GPU device,
  * for diagnostic purposes.
+ *
+ * Return: NOTIFY_OK on success, NOTIFY_BAD otherwise.
  */
 static int mali_oom_notifier_handler(struct notifier_block *nb,
 				     unsigned long action, void *data)
@@ -189,7 +192,7 @@ static int mali_oom_notifier_handler(struct notifier_block *nb,
 
 	mutex_lock(&kbdev->kctx_list_lock);
 
-	list_for_each_entry (kctx, &kbdev->kctx_list, kctx_list_link) {
+	list_for_each_entry(kctx, &kbdev->kctx_list, kctx_list_link) {
 		struct pid *pid_struct;
 		struct task_struct *task;
 		unsigned long task_alloc_total =
@@ -275,6 +278,7 @@ int kbase_device_misc_init(struct kbase_device * const kbdev)
 	if (err)
 		goto dma_set_mask_failed;
 
+
 	/* There is no limit for Mali, so set to max. We only do this if dma_parms
 	 * is already allocated by the platform.
 	 */
@@ -344,6 +348,7 @@ void kbase_device_misc_term(struct kbase_device *kbdev)
 	kbase_ktrace_term(kbdev);
 
 	kbase_device_all_as_term(kbdev);
+
 
 	if (kbdev->oom_notifier_block.notifier_call)
 		unregister_oom_notifier(&kbdev->oom_notifier_block);
@@ -478,6 +483,7 @@ KBASE_EXPORT_TEST_API(kbase_device_put_list);
 int kbase_device_early_init(struct kbase_device *kbdev)
 {
 	int err;
+
 
 	err = kbasep_platform_device_init(kbdev);
 	if (err)

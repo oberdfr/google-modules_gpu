@@ -49,6 +49,7 @@ void kbase_context_debugfs_init(struct kbase_context *const kctx)
 	kbase_csf_queue_group_debugfs_init(kctx);
 	kbase_csf_kcpu_debugfs_init(kctx);
 	kbase_csf_tiler_heap_debugfs_init(kctx);
+	kbase_csf_tiler_heap_total_debugfs_init(kctx);
 	kbase_csf_cpu_queue_debugfs_init(kctx);
 }
 KBASE_EXPORT_SYMBOL(kbase_context_debugfs_init);
@@ -195,8 +196,12 @@ void kbase_destroy_context(struct kbase_context *kctx)
 		wait_event(kbdev->pm.resume_wait,
 			   !kbase_pm_is_suspending(kbdev));
 	}
-
-	/* Make sure L2 cache is powered up */
+	/*
+	 * Taking a pm reference does not guarantee that the GPU has finished powering up.
+	 * It's possible that the power up has been deferred until after a scheduled power down.
+	 * We must wait here for the L2 to be powered up, and holding a pm reference guarantees that
+	 * it will not be powered down afterwards.
+	 */
 	err = kbase_pm_wait_for_l2_powered(kbdev);
 	if (err) {
 		dev_err(kbdev->dev, "Wait for L2 power up failed on term of ctx %d_%d",

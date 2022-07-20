@@ -71,7 +71,7 @@ endif
 #
 
 # Driver version string which is returned to userspace via an ioctl
-MALI_RELEASE_NAME ?= '"r34p0-00dev1"'
+MALI_RELEASE_NAME ?= '"r36p0-01eac0"'
 
 # We are building for Pixel
 CONFIG_MALI_PLATFORM_NAME="pixel"
@@ -85,8 +85,6 @@ else
     MALI_CUSTOMER_RELEASE ?= 1
 endif
 MALI_COVERAGE ?= 0
-
-CONFIG_MALI_PLATFORM_NAME ?= "devicetree"
 
 # Kconfig passes in the name with quotes for in-tree builds - remove them.
 MALI_PLATFORM_DIR := $(shell echo $(CONFIG_MALI_PLATFORM_NAME))
@@ -126,7 +124,6 @@ ccflags-y = \
     -DMALI_RELEASE_NAME=$(MALI_RELEASE_NAME) \
     -DMALI_JIT_PRESSURE_LIMIT_BASE=$(MALI_JIT_PRESSURE_LIMIT_BASE) \
     -DMALI_INCREMENTAL_RENDERING=$(MALI_INCREMENTAL_RENDERING) \
-    -DMALI_KBASE_BUILD \
     -DMALI_PLATFORM_DIR=$(MALI_PLATFORM_DIR)
 
 
@@ -171,9 +168,9 @@ mali_kbase-y := \
     mali_kbase_hwcnt.o \
     mali_kbase_hwcnt_gpu.o \
     mali_kbase_hwcnt_gpu_narrow.o \
-    mali_kbase_hwcnt_legacy.o \
     mali_kbase_hwcnt_types.o \
     mali_kbase_hwcnt_virtualizer.o \
+    mali_kbase_hwcnt_watchdog_if_timer.o \
     mali_kbase_softjobs.o \
     mali_kbase_hw.o \
     mali_kbase_debug.o \
@@ -216,6 +213,7 @@ else
     mali_kbase-y += \
         mali_kbase_jm.o \
         mali_kbase_hwcnt_backend_jm.o \
+        mali_kbase_hwcnt_backend_jm_watchdog.o \
         mali_kbase_dummy_job_wa.o \
         mali_kbase_debug_job_fault.o \
         mali_kbase_event.o \

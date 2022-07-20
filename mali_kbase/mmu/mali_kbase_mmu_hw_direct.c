@@ -29,6 +29,7 @@
 
 /**
  * lock_region() - Generate lockaddr to lock memory region in MMU
+ * @gpu_props: GPU properties for finding the MMU lock region size
  * @pfn:       Starting page frame number of the region to lock
  * @num_pages: Number of pages to lock. It must be greater than 0.
  * @lockaddr:  Address and size of memory region to lock
@@ -62,7 +63,8 @@
  *
  * Return: 0 if success, or an error code on failure.
  */
-static int lock_region(u64 pfn, u32 num_pages, u64 *lockaddr)
+static int lock_region(struct kbase_gpu_props const *gpu_props, u64 pfn, u32 num_pages,
+		       u64 *lockaddr)
 {
 	const u64 lockaddr_base = pfn << PAGE_SHIFT;
 	const u64 lockaddr_end = ((pfn + num_pages) << PAGE_SHIFT) - 1;
@@ -106,7 +108,7 @@ static int lock_region(u64 pfn, u32 num_pages, u64 *lockaddr)
 		return -EINVAL;
 
 	lockaddr_size_log2 =
-		MAX(lockaddr_size_log2, KBASE_LOCK_REGION_MIN_SIZE_LOG2);
+		MAX(lockaddr_size_log2, kbase_get_lock_region_min_size_log2(gpu_props));
 
 	/* Represent the result in a way that is compatible with HW spec.
 	 *
@@ -128,25 +130,22 @@ static int wait_ready(struct kbase_device *kbdev,
 		unsigned int as_nr)
 {
 	unsigned int max_loops = KBASE_AS_INACTIVE_MAX_LOOPS;
-	u32 val = kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_STATUS));
 
-	/* Wait for the MMU status to indicate there is no active command, in
-	 * case one is pending. Do not log remaining register accesses.
-	 */
-	while (--max_loops && (val & AS_STATUS_AS_ACTIVE))
-		val = kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_STATUS));
+	/* Wait for the MMU status to indicate there is no active command. */
+	while (--max_loops &&
+	       kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_STATUS)) &
+		       AS_STATUS_AS_ACTIVE) {
+		;
+	}
 
 	if (WARN_ON_ONCE(max_loops == 0)) {
 		dev_err(kbdev->dev,
 			"AS_ACTIVE bit stuck for as %u, might be caused by slow/unstable GPU clock or possible faulty FPGA connector",
 			as_nr);
-		dump_stack();
+		atomic_long_set(&kbdev->csf.coredump_work.data, KBASE_COREDUMP_MMU_HANG);
+		queue_work(system_highpri_wq, &kbdev->csf.coredump_work);
 		return -1;
 	}
-
-	/* If waiting in loop was performed, log last read value. */
-	if (KBASE_AS_INACTIVE_MAX_LOOPS - 1 > max_loops)
-		kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_STATUS));
 
 	return 0;
 }
@@ -229,22 +228,12 @@ int kbase_mmu_hw_do_operation(struct kbase_device *kbdev, struct kbase_as *as,
 			      struct kbase_mmu_hw_op_param *op_param)
 {
 	int ret;
-	unsigned long flags;
-
-	lockdep_assert_held(&kbdev->mmu_hw_mutex);
-
-	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
-	ret = kbase_mmu_hw_do_operation_locked(kbdev, as, op_param);
-	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
-
-	return ret;
-}
-
-int kbase_mmu_hw_do_operation_locked(struct kbase_device *kbdev, struct kbase_as *as,
-			      struct kbase_mmu_hw_op_param *op_param)
-{
-	int ret;
 	u64 lock_addr = 0x0;
+
+	if (WARN_ON(kbdev == NULL) ||
+	    WARN_ON(as == NULL) ||
+	    WARN_ON(op_param == NULL))
+		return -EINVAL;
 
 	lockdep_assert_held(&kbdev->mmu_hw_mutex);
 	lockdep_assert_held(&kbdev->hwaccess_lock);
@@ -267,7 +256,7 @@ int kbase_mmu_hw_do_operation_locked(struct kbase_device *kbdev, struct kbase_as
 			dev_err(kbdev->dev, "AS_ACTIVE bit stuck after sending UNLOCK command");
 	} else if (op_param->op >= KBASE_MMU_OP_FIRST &&
 		   op_param->op < KBASE_MMU_OP_COUNT) {
-		ret = lock_region(op_param->vpfn, op_param->nr, &lock_addr);
+		ret = lock_region(&kbdev->gpu_props, op_param->vpfn, op_param->nr, &lock_addr);
 
 		if (!ret) {
 			/* Lock the region that needs to be updated */

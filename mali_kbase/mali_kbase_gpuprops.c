@@ -367,13 +367,6 @@ static void kbase_gpuprops_calculate_props(
 		gpu_props->thread_props.tls_alloc =
 				gpu_props->raw_props.thread_tls_alloc;
 
-	/* MIDHARC-2364 was intended for tULx.
-	 * Workaround for the incorrectly applied THREAD_FEATURES to tDUx.
-	 */
-#if !MALI_USE_CSF
-	gpu_id = kbdev->gpu_props.props.raw_props.gpu_id;
-#endif
-
 #if MALI_USE_CSF
 	gpu_props->thread_props.max_registers =
 		KBASE_UBFX32(gpu_props->raw_props.thread_features,
@@ -386,6 +379,10 @@ static void kbase_gpuprops_calculate_props(
 			     24U, 8);
 	gpu_props->thread_props.max_thread_group_split = 0;
 #else
+	/* MIDHARC-2364 was intended for tULx.
+	 * Workaround for the incorrectly applied THREAD_FEATURES to tDUx.
+	 */
+	gpu_id = kbdev->gpu_props.props.raw_props.gpu_id;
 	if ((gpu_id & GPU_ID2_PRODUCT_MODEL) == GPU_ID2_PRODUCT_TDUX) {
 		gpu_props->thread_props.max_registers =
 			KBASE_UBFX32(gpu_props->raw_props.thread_features,
@@ -763,8 +760,8 @@ static struct {
 			raw_props.thread_max_workgroup_size),
 	PROP(RAW_THREAD_MAX_BARRIER_SIZE, raw_props.thread_max_barrier_size),
 	PROP(RAW_THREAD_FEATURES,         raw_props.thread_features),
-	PROP(RAW_THREAD_TLS_ALLOC,        raw_props.thread_tls_alloc),
 	PROP(RAW_COHERENCY_MODE,          raw_props.coherency_mode),
+	PROP(RAW_THREAD_TLS_ALLOC,        raw_props.thread_tls_alloc),
 	PROP(RAW_GPU_FEATURES,            raw_props.gpu_features),
 	PROP(COHERENCY_NUM_GROUPS,        coherency_info.num_groups),
 	PROP(COHERENCY_NUM_CORE_GROUPS,   coherency_info.num_core_groups),

@@ -41,6 +41,11 @@ struct kbase_jd_atom;
 /**
  * enum kbase_pm_core_type - The types of core in a GPU.
  *
+ * @KBASE_PM_CORE_L2: The L2 cache
+ * @KBASE_PM_CORE_SHADER: Shader cores
+ * @KBASE_PM_CORE_TILER: Tiler cores
+ * @KBASE_PM_CORE_STACK: Core stacks
+ *
  * These enumerated values are used in calls to
  * - kbase_pm_get_present_cores()
  * - kbase_pm_get_active_cores()
@@ -50,11 +55,6 @@ struct kbase_jd_atom;
  * They specify which type of core should be acted on.  These values are set in
  * a manner that allows core_type_to_reg() function to be simpler and more
  * efficient.
- *
- * @KBASE_PM_CORE_L2: The L2 cache
- * @KBASE_PM_CORE_SHADER: Shader cores
- * @KBASE_PM_CORE_TILER: Tiler cores
- * @KBASE_PM_CORE_STACK: Core stacks
  */
 enum kbase_pm_core_type {
 	KBASE_PM_CORE_L2 = L2_PRESENT_LO,
@@ -215,10 +215,61 @@ union kbase_pm_policy_data {
 };
 
 /**
- * struct kbase_pm_backend_data - Data stored per device for power management.
+ * enum kbase_pm_log_event_type - The types of core in a GPU.
  *
- * This structure contains data for the power management framework. There is one
- * instance of this structure per device in the system.
+ * @KBASE_PM_LOG_EVENT_NONE: an unused log event, default state at
+ *                           initialization. Carries no data.
+ * @KBASE_PM_LOG_EVENT_SHADERS_STATE: a transition of the JM shader state
+ *                               machine.  .state is populated.
+ * @KBASE_PM_LOG_EVENT_L2_STATE: a transition of the L2 state machine.
+ *                               .state is populated.
+ * @KBASE_PM_LOG_EVENT_MCU_STATE: a transition of the MCU state machine.
+ *                                .state is populated.
+ * @KBASE_PM_LOG_EVENT_CORES: a transition of core availability.
+ *                            .cores is populated.
+ *
+ * Each event log event has a type which determines the data it carries.
+ */
+enum kbase_pm_log_event_type {
+	KBASE_PM_LOG_EVENT_NONE = 0,
+	KBASE_PM_LOG_EVENT_SHADERS_STATE,
+	KBASE_PM_LOG_EVENT_L2_STATE,
+	KBASE_PM_LOG_EVENT_MCU_STATE,
+	KBASE_PM_LOG_EVENT_CORES
+};
+
+/**
+ * struct kbase_pm_event_log_event - One event in the PM log.
+ *
+ * @type: The type of the event, from &enum kbase_pm_log_event_type.
+ * @timestamp: The time the log event was generated.
+ **/
+struct kbase_pm_event_log_event {
+	u8 type;
+	ktime_t timestamp;
+	union {
+		struct {
+			u8 next;
+			u8 prev;
+		} state;
+		struct {
+			u64 l2;
+			u64 shader;
+			u64 tiler;
+			u64 stack;
+		} cores;
+	};
+};
+
+#define EVENT_LOG_MAX (PAGE_SIZE / sizeof(struct kbase_pm_event_log_event))
+
+struct kbase_pm_event_log {
+	u32 last_event;
+	struct kbase_pm_event_log_event events[EVENT_LOG_MAX];
+};
+
+/**
+ * struct kbase_pm_backend_data - Data stored per device for power management.
  *
  * @pm_current_policy: The policy that is currently actively controlling the
  *                     power state.
@@ -289,6 +340,10 @@ union kbase_pm_policy_data {
  *                                     @callback_power_runtime_gpu_idle was
  *                                     called previously.
  *                                     See &struct kbase_pm_callback_conf.
+ * @callback_power_on_sc_rails: Callback invoked to turn on the shader core
+ *                              power rails. See &struct kbase_pm_callback_conf.
+ * @callback_power_off_sc_rails: Callback invoked to turn off the shader core
+ *                               power rails. See &struct kbase_pm_callback_conf.
  * @ca_cores_enabled: Cores that are currently available
  * @mcu_state: The current state of the micro-control unit, only applicable
  *             to GPUs that have such a component
@@ -326,6 +381,10 @@ union kbase_pm_policy_data {
  * @policy_change_lock: Used to serialize the policy change calls. In CSF case,
  *                      the change of policy may involve the scheduler to
  *                      suspend running CSGs and then reconfigure the MCU.
+ * @core_idle_wq: Workqueue for executing the @core_idle_work.
+ * @core_idle_work: Work item used to wait for undesired cores to become inactive.
+ *                  The work item is enqueued when Host controls the power for
+ *                  shader cores and down scaling of cores is performed.
  * @gpu_sleep_supported: Flag to indicate that if GPU sleep feature can be
  *                       supported by the kernel driver or not. If this
  *                       flag is not set, then HW state is directly saved
@@ -390,6 +449,10 @@ union kbase_pm_policy_data {
  *                         work function, kbase_pm_gpu_clock_control_worker.
  * @gpu_clock_control_work: work item to set GPU clock during L2 power cycle
  *                          using gpu_clock_control
+ * @event_log: data for the always-on event log
+ *
+ * This structure contains data for the power management framework. There is one
+ * instance of this structure per device in the system.
  *
  * Note:
  * During an IRQ, @pm_current_policy can be NULL when the policy is being
@@ -442,6 +505,10 @@ struct kbase_pm_backend_data {
 	int (*callback_soft_reset)(struct kbase_device *kbdev);
 	void (*callback_power_runtime_gpu_idle)(struct kbase_device *kbdev);
 	void (*callback_power_runtime_gpu_active)(struct kbase_device *kbdev);
+#ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
+	void (*callback_power_on_sc_rails)(struct kbase_device *kbdev);
+	void (*callback_power_off_sc_rails)(struct kbase_device *kbdev);
+#endif
 
 	u64 ca_cores_enabled;
 
@@ -457,6 +524,12 @@ struct kbase_pm_backend_data {
 	bool policy_change_clamp_state_to_off;
 	unsigned int csf_pm_sched_flags;
 	struct mutex policy_change_lock;
+	struct workqueue_struct *core_idle_wq;
+	struct work_struct core_idle_work;
+#ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
+	struct work_struct sc_rails_on_work;
+	bool sc_power_rails_off;
+#endif
 
 #ifdef KBASE_PM_RUNTIME
 	bool gpu_sleep_supported;
@@ -490,6 +563,8 @@ struct kbase_pm_backend_data {
 	bool gpu_clock_slow_down_desired;
 	bool gpu_clock_slowed_down;
 	struct work_struct gpu_clock_control_work;
+
+	struct kbase_pm_event_log event_log;
 };
 
 #if MALI_USE_CSF
@@ -551,9 +626,6 @@ enum kbase_pm_policy_event {
 /**
  * struct kbase_pm_policy - Power policy structure.
  *
- * Each power policy exposes a (static) instance of this structure which
- * contains function pointers to the policy's methods.
- *
  * @name:               The name of this policy
  * @init:               Function called when the policy is selected
  * @term:               Function called when the policy is unselected
@@ -571,6 +643,8 @@ enum kbase_pm_policy_event {
  *                  Pre-defined required flags exist for each of the
  *                  ARM released policies, such as 'always_on', 'coarse_demand'
  *                  and etc.
+ * Each power policy exposes a (static) instance of this structure which
+ * contains function pointers to the policy's methods.
  */
 struct kbase_pm_policy {
 	char *name;

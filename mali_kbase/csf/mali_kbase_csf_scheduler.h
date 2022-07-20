@@ -23,6 +23,7 @@
 #define _KBASE_CSF_SCHEDULER_H_
 
 #include "mali_kbase_csf.h"
+#include "mali_kbase_csf_event.h"
 
 /**
  * kbase_csf_scheduler_queue_start() - Enable the running of GPU command queue
@@ -250,13 +251,13 @@ void kbase_csf_scheduler_enable_tick_timer(struct kbase_device *kbdev);
  * kbase_csf_scheduler_group_copy_suspend_buf - Suspend a queue
  *		group and copy suspend buffer.
  *
- * This function is called to suspend a queue group and copy the suspend_buffer
- * contents to the input buffer provided.
- *
  * @group:	Pointer to the queue group to be suspended.
  * @sus_buf:	Pointer to the structure which contains details of the
  *		user buffer and its kernel pinned pages to which we need to copy
  *		the group suspend buffer.
+ *
+ * This function is called to suspend a queue group and copy the suspend_buffer
+ * contents to the input buffer provided.
  *
  * Return:	0 on success, or negative on failure.
  */
@@ -409,6 +410,17 @@ void kbase_csf_scheduler_pm_idle(struct kbase_device *kbdev);
 int kbase_csf_scheduler_wait_mcu_active(struct kbase_device *kbdev);
 
 /**
+ * kbase_csf_scheduler_pm_resume_no_lock - Reactivate the scheduler on system resume
+ *
+ * @kbdev: Instance of a GPU platform device that implements a CSF interface.
+ *
+ * This function will make the scheduler resume the scheduling of queue groups
+ * and take the power managemenet reference, if there are any runnable groups.
+ * The caller must have acquired the global Scheduler lock.
+ */
+void kbase_csf_scheduler_pm_resume_no_lock(struct kbase_device *kbdev);
+
+/**
  * kbase_csf_scheduler_pm_resume - Reactivate the scheduler on system resume
  *
  * @kbdev: Instance of a GPU platform device that implements a CSF interface.
@@ -419,14 +431,29 @@ int kbase_csf_scheduler_wait_mcu_active(struct kbase_device *kbdev);
 void kbase_csf_scheduler_pm_resume(struct kbase_device *kbdev);
 
 /**
+ * kbase_csf_scheduler_pm_suspend_no_lock - Idle the scheduler on system suspend
+ *
+ * @kbdev: Instance of a GPU platform device that implements a CSF interface.
+ *
+ * This function will make the scheduler suspend all the running queue groups
+ * and drop its power managemenet reference.
+ * The caller must have acquired the global Scheduler lock.
+ *
+ * Return: 0 on success.
+ */
+int kbase_csf_scheduler_pm_suspend_no_lock(struct kbase_device *kbdev);
+
+/**
  * kbase_csf_scheduler_pm_suspend - Idle the scheduler on system suspend
  *
  * @kbdev: Instance of a GPU platform device that implements a CSF interface.
  *
  * This function will make the scheduler suspend all the running queue groups
  * and drop its power managemenet reference.
+ *
+ * Return: 0 on success.
  */
-void kbase_csf_scheduler_pm_suspend(struct kbase_device *kbdev);
+int kbase_csf_scheduler_pm_suspend(struct kbase_device *kbdev);
 
 /**
  * kbase_csf_scheduler_all_csgs_idle() - Check if the scheduler internal
@@ -620,6 +647,31 @@ void kbase_csf_scheduler_force_wakeup(struct kbase_device *kbdev);
  * This function is only used for testing purpose.
  */
 void kbase_csf_scheduler_force_sleep(struct kbase_device *kbdev);
+#endif
+
+/**
+ * kbase_csf_scheduler_process_gpu_idle_event() - Process GPU idle event
+ *
+ * @kbdev: Pointer to the device
+ *
+ * This function is called when a IRQ for GPU idle event has been raised.
+ *
+ * Return: true if the GPU idle event can be acknowledged.
+ */
+bool kbase_csf_scheduler_process_gpu_idle_event(struct kbase_device *kbdev);
+
+#ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
+/**
+ * turn_on_sc_power_rails - Turn on the shader core power rails.
+ *
+ * @kbdev: Pointer to the device.
+ *
+ * This function is called to synchronously turn on the shader core power rails,
+ * before execution is resumed on the cores.
+ *
+ * scheduler lock must be held when calling this function
+ */
+void turn_on_sc_power_rails(struct kbase_device *kbdev);
 #endif
 
 #endif /* _KBASE_CSF_SCHEDULER_H_ */
