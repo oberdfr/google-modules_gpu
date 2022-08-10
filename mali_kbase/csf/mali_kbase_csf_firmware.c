@@ -38,7 +38,6 @@
 #include <csf/ipa_control/mali_kbase_csf_ipa_control.h>
 #include <csf/mali_kbase_csf_registers.h>
 
-#include <linux/delay.h>
 #include <linux/list.h>
 #include <linux/slab.h>
 #include <linux/firmware.h>
@@ -109,9 +108,6 @@ MODULE_PARM_DESC(fw_debug,
 #define CSF_GLB_REQ_CFG_MASK                                                                       \
 	(GLB_REQ_CFG_ALLOC_EN_MASK | GLB_REQ_CFG_PROGRESS_TIMER_MASK |                             \
 	 GLB_REQ_CFG_PWROFF_TIMER_MASK | GLB_REQ_IDLE_ENABLE_MASK)
-
-#define WAIT_AFTER_FIRMWARE_BOOT_MS 20 /* 20ms */
-#define MAX_TRIES_PARSE_FW_GLOBAL_INT 20
 
 static inline u32 input_page_read(const u32 *const input, const u32 offset)
 {
@@ -1124,21 +1120,6 @@ static int parse_capabilities(struct kbase_device *kbdev)
 	return 0;
 }
 
-static bool check_suspend_buffer_size(struct kbase_device *kbdev)
-{
-	int index;
-	bool size_check = true;
-
-	for (index = 0; index < kbdev->csf.global_iface.group_num; index++) {
-		if (size_check && kbdev->csf.global_iface.groups[index].suspend_size == 0) {
-			dev_dbg(kbdev->dev, "CSG suspend buffer[%d] size is 0", index);
-			size_check = false;
-		}
-	}
-
-	return size_check;
-}
-
 static inline void access_firmware_memory(struct kbase_device *kbdev,
 	u32 gpu_addr, u32 *value, const bool read)
 {
@@ -2028,7 +2009,6 @@ int kbase_csf_firmware_init(struct kbase_device *kbdev)
 	u32 entry_end_offset;
 	u32 entry_offset;
 	int ret;
-	int retry_count = 0;
 
 	lockdep_assert_held(&kbdev->fw_load_lock);
 
@@ -2148,7 +2128,7 @@ int kbase_csf_firmware_init(struct kbase_device *kbdev)
 
 	boot_csf_firmware(kbdev);
 
-	{
+	{	/* WAR b/239506823 */
 		struct kbase_csf_firmware_interface *interface = kbdev->csf.shared_interface;
 		const u32 num_pages = interface->num_pages;
 		u32 i;
@@ -2161,30 +2141,9 @@ int kbase_csf_firmware_init(struct kbase_device *kbdev)
 		}
 	}
 
-	/* Remove this workaround once b/239506823 is Fixed */
-	while (retry_count++ < MAX_TRIES_PARSE_FW_GLOBAL_INT)
-	{
-		if (parse_capabilities(kbdev) == 0) {
-			if (check_suspend_buffer_size(kbdev))
-				break;
-
-			free_global_iface(kbdev);
-		}
-		msleep(WAIT_AFTER_FIRMWARE_BOOT_MS);
-		dev_dbg(kbdev->dev,
-			"Wait for additional %dms to map Firmware global interface correctly",
-			WAIT_AFTER_FIRMWARE_BOOT_MS);
-	}
-
-	if (--retry_count == MAX_TRIES_PARSE_FW_GLOBAL_INT) {
-		dev_err(kbdev->dev,
-			"Firmware global interface cannot be parsed correctly after %dms wait",
-			(WAIT_AFTER_FIRMWARE_BOOT_MS * retry_count));
+	ret = parse_capabilities(kbdev);
+	if (ret != 0)
 		goto error;
-	}
-	dev_info(kbdev->dev,
-			"Firmware global interface parsed successfully after %dms wait",
-			(WAIT_AFTER_FIRMWARE_BOOT_MS * retry_count));
 
 	ret = kbase_csf_doorbell_mapping_init(kbdev);
 	if (ret != 0)
