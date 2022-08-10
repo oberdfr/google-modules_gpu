@@ -2148,6 +2148,19 @@ int kbase_csf_firmware_init(struct kbase_device *kbdev)
 
 	boot_csf_firmware(kbdev);
 
+	{
+		struct kbase_csf_firmware_interface *interface = kbdev->csf.shared_interface;
+		const u32 num_pages = interface->num_pages;
+		u32 i;
+
+		dev_dbg(kbdev->dev, "invalidating %u fw interface pages", num_pages);
+		for (i = 0; i < num_pages; i++) {
+			struct page *pg = as_page(interface->phys[i]);
+			kbase_sync_single_for_cpu(kbdev, kbase_dma_addr(pg), PAGE_SIZE,
+						  DMA_BIDIRECTIONAL);
+		}
+	}
+
 	/* Remove this workaround once b/239506823 is Fixed */
 	while (retry_count++ < MAX_TRIES_PARSE_FW_GLOBAL_INT)
 	{
