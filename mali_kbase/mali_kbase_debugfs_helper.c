@@ -90,11 +90,10 @@ set_attr_from_string(char *const buf, void *const array, size_t const nelems,
 
 int kbase_debugfs_string_validator(char *const buf)
 {
-	size_t index;
 	int err = 0;
 	char *ptr = buf;
 
-	for (index = 0; *ptr; ++index) {
+	while (*ptr) {
 		unsigned long test_number;
 		size_t len;
 
