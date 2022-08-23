@@ -44,7 +44,9 @@ static struct gpu_dvfs_opp gpu_dvfs_table[DVFS_TABLE_ROW_MAX];
 static int gpu_dvfs_set_new_level(struct kbase_device *kbdev, int next_level)
 {
 	struct pixel_context *pc = kbdev->platform_context;
+#if IS_ENABLED(CONFIG_CAL_IF)
 	int c;
+#endif /* CONFIG_CAL_IF */
 
 	lockdep_assert_held(&pc->dvfs.lock);
 
@@ -504,14 +506,15 @@ static int validate_and_parse_dvfs_table(struct kbase_device *kbdev, int dvfs_ta
 	char table_name[64];
 	char table_size_name[64];
 
-	int i, idx, c;
+	int i, idx;
 	int of_data_int_array[OF_DATA_NUM_MAX];
 	int dvfs_table_row_num = 0, dvfs_table_col_num = 0;
 	int dvfs_table_size = 0;
 
 #if IS_ENABLED(CONFIG_CAL_IF)
-	struct dvfs_rate_volt vf_map[GPU_DVFS_CLK_COUNT][16];
+	int c;
 	int level_count[GPU_DVFS_CLK_COUNT];
+	struct dvfs_rate_volt vf_map[GPU_DVFS_CLK_COUNT][16];
 #endif /* CONFIG_CAL_IF */
 
 	int scaling_level_max = -1, scaling_level_min = -1;
@@ -675,7 +678,11 @@ static int gpu_dvfs_update_asv_table(struct kbase_device *kbdev)
  */
 static int gpu_dvfs_set_initial_level(struct kbase_device *kbdev)
 {
-	int level, ret, c;
+	int level, ret = -1;
+#if IS_ENABLED(CONFIG_CAL_IF)
+	int c;
+#endif /* CONFIG_CAL_IF */
+
 	struct pixel_context *pc = kbdev->platform_context;
 
 	level = pc->dvfs.level_min;

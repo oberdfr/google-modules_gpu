@@ -179,7 +179,9 @@ int gpu_dvfs_qos_init(struct kbase_device *kbdev)
 	dev_dbg(kbdev->dev, "GPU QOS initialized\n");
 	ret = 0;
 
+#ifdef CONFIG_MALI_PIXEL_GPU_BTS
 done:
+#endif /* CONFIG_MALI_PIXEL_GPU_BTS */
 	return ret;
 }
 
@@ -190,7 +192,9 @@ done:
  */
 void gpu_dvfs_qos_term(struct kbase_device *kbdev)
 {
+#if IS_ENABLED(CONFIG_EXYNOS_PMU_IF) || defined(CONFIG_MALI_PIXEL_GPU_BTS)
 	struct pixel_context *pc = kbdev->platform_context;
+#endif
 
 	exynos_pm_qos_remove_request(&pc->dvfs.qos.int_min.req);
 	exynos_pm_qos_remove_request(&pc->dvfs.qos.mif_min.req);
