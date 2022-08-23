@@ -4631,9 +4631,9 @@ int power_control_init(struct kbase_device *kbdev)
 	unsigned int i;
 #if defined(CONFIG_REGULATOR)
 	static const char * const regulator_names[] = {
-		"mali", "shadercores"
+		"mali", "shadercores", NULL
 	};
-	BUILD_BUG_ON(ARRAY_SIZE(regulator_names) < BASE_MAX_NR_CLOCKS_REGULATORS);
+	BUILD_BUG_ON(ARRAY_SIZE(regulator_names) - 1 < BASE_MAX_NR_CLOCKS_REGULATORS);
 #endif /* CONFIG_REGULATOR */
 
 	if (!kbdev)
@@ -4712,36 +4712,16 @@ int power_control_init(struct kbase_device *kbdev)
 	 * from completing its initialization.
 	 */
 #if defined(CONFIG_PM_OPP)
-#if ((KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE) && \
-	defined(CONFIG_REGULATOR))
+#if defined(CONFIG_REGULATOR)
 	if (kbdev->nr_regulators > 0) {
-		kbdev->opp_table = dev_pm_opp_set_regulators(kbdev->dev,
-			regulator_names, BASE_MAX_NR_CLOCKS_REGULATORS);
-
-		if (IS_ERR_OR_NULL(kbdev->opp_table)) {
-			err = PTR_ERR(kbdev->opp_table);
-			goto regulators_probe_defer;
-		}
+		kbdev->opp_token = dev_pm_opp_set_regulators(kbdev->dev,
+			regulator_names);
 	}
-#endif /* (KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE */
+#endif /* CONFIG_REGULATOR */
 	err = dev_pm_opp_of_add_table(kbdev->dev);
 	CSTD_UNUSED(err);
 #endif /* CONFIG_PM_OPP */
 	return 0;
-
-#if defined(CONFIG_PM_OPP) &&                                                                      \
-	((KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE) && defined(CONFIG_REGULATOR))
-regulators_probe_defer:
-	for (i = 0; i < BASE_MAX_NR_CLOCKS_REGULATORS; i++) {
-		if (kbdev->clocks[i]) {
-			if (__clk_is_enabled(kbdev->clocks[i]))
-				clk_disable_unprepare(kbdev->clocks[i]);
-			clk_put(kbdev->clocks[i]);
-			kbdev->clocks[i] = NULL;
-		} else
-			break;
-	}
-#endif
 
 clocks_probe_defer:
 #if defined(CONFIG_REGULATOR)
@@ -4758,11 +4738,10 @@ void power_control_term(struct kbase_device *kbdev)
 
 #if defined(CONFIG_PM_OPP)
 	dev_pm_opp_of_remove_table(kbdev->dev);
-#if ((KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE) && \
-	defined(CONFIG_REGULATOR))
-	if (!IS_ERR_OR_NULL(kbdev->opp_table))
-		dev_pm_opp_put_regulators(kbdev->opp_table);
-#endif /* (KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE */
+#if defined(CONFIG_REGULATOR)
+	if (kbdev->opp_token >= 0)
+		dev_pm_opp_put_regulators(kbdev->opp_token);
+#endif /* CONFIG_REGULATOR */
 #endif /* CONFIG_PM_OPP */
 
 	for (i = 0; i < BASE_MAX_NR_CLOCKS_REGULATORS; i++) {
