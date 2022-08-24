@@ -26,7 +26,8 @@
 #include "pixel_gpu_dvfs.h"
 #include "pixel_gpu_trace.h"
 
-#define DVFS_TABLE_ROW_MAX (12)
+#define DVFS_TABLE_ROW_MAX (14)
+#define DVFS_TABLES_MAX (2)
 static struct gpu_dvfs_opp gpu_dvfs_table[DVFS_TABLE_ROW_MAX];
 
 /* DVFS event handling code */
@@ -483,28 +484,27 @@ static int find_voltage_for_freq(struct kbase_device *kbdev, unsigned int clock,
 #endif /* CONFIG_CAL_IF */
 
 /**
- * gpu_dvfs_update_asv_table() - Populate the GPU's DVFS table from DT.
+ * validate_and_parse_dvfs_table() - Validate and populate the GPU's DVFS table from DT.
  *
  * @kbdev: The &struct kbase_device for the GPU.
+ * @dvfs_table_num: DVFS table number to be validated and parsed.
  *
- * This function reads data out of the GPU's device tree entry and uses it to populate
- * &gpu_dvfs_table. For each entry in the DVFS table, it makes calls to determine voltages from ECT.
- * It also checks for any level locks specified in the devicetree and ensures that the effective
- * scaling range is set up.
+ * This function reads data out of the GPU's device tree entry, validates it, and
+ * uses it to populate &gpu_dvfs_table. For each entry in the DVFS table, it makes
+ * calls to determine voltages from ECT. It also checks for any level locks specified
+ * in the devicetree and ensures that the effective scaling range is set up.
  *
- * This function will fail if the required data is not present in the GPU's device tree entry.
+ * This function will fail if the particular dvfs table's operating points does not
+ * match the ECT table for the device.
  *
- * Context: Expects the caller to hold the DVFS lock
- *
- * Return: Returns the size of the DVFS table on success, -EINVAL on failure.
+ * Return: Returns the number of opertaing points in the DVFS table on success, -EINVAL on failure.
  */
-static int gpu_dvfs_update_asv_table(struct kbase_device *kbdev)
+static int validate_and_parse_dvfs_table(struct kbase_device *kbdev, int dvfs_table_num)
 {
-	struct pixel_context *pc = kbdev->platform_context;
-	struct device_node *np = kbdev->dev->of_node;
+	char table_name[64];
+	char table_size_name[64];
 
 	int i, idx, c;
-
 	int of_data_int_array[OF_DATA_NUM_MAX];
 	int dvfs_table_row_num = 0, dvfs_table_col_num = 0;
 	int dvfs_table_size = 0;
@@ -519,9 +519,8 @@ static int gpu_dvfs_update_asv_table(struct kbase_device *kbdev)
 	int scaling_freq_min_devicetree = 0;
 	int scaling_freq_min_compute = 0;
 
-	bool use_asv_v1 = false;
-
-	lockdep_assert_held(&pc->dvfs.lock);
+	struct device_node *np = kbdev->dev->of_node;
+	struct pixel_context *pc = kbdev->platform_context;
 
 #if IS_ENABLED(CONFIG_CAL_IF)
 	/* Get frequency -> voltage mapping */
@@ -532,24 +531,11 @@ static int gpu_dvfs_update_asv_table(struct kbase_device *kbdev)
 			goto err;
 		}
 	}
-
-	/* We detect which ASV table the GPU is running by checking which
-	 * operating points are available from ECT. We check for 202MHz on the
-	 * GPU shader cores as this is only available in ASV v0.3 and later.
-	 */
-	if (find_voltage_for_freq(kbdev, 202000, NULL, vf_map[GPU_DVFS_CLK_SHADERS],
-		level_count[GPU_DVFS_CLK_SHADERS]))
-		use_asv_v1 = true;
 #endif /* CONFIG_CAL_IF */
 
-	/* Get size of DVFS table data from device tree */
-	if (use_asv_v1) {
-		if (of_property_read_u32_array(np, "gpu_dvfs_table_size_v1", of_data_int_array, 2))
-			goto err;
-	} else {
-		if (of_property_read_u32_array(np, "gpu_dvfs_table_size_v2", of_data_int_array, 2))
-			goto err;
-	}
+	sprintf(table_size_name, "gpu_dvfs_table_size_v%d", dvfs_table_num);
+	if (of_property_read_u32_array(np, table_size_name, of_data_int_array, 2))
+		goto err;
 
 	dvfs_table_row_num = of_data_int_array[0];
 	dvfs_table_col_num = of_data_int_array[1];
@@ -557,26 +543,40 @@ static int gpu_dvfs_update_asv_table(struct kbase_device *kbdev)
 
 	if (dvfs_table_row_num > DVFS_TABLE_ROW_MAX) {
 		dev_err(kbdev->dev,
-			"DVFS table has %d rows but only up to %d are supported\n",
-			dvfs_table_row_num, DVFS_TABLE_ROW_MAX);
+			"DVFS table %d has %d rows but only up to %d are supported",
+			dvfs_table_num, dvfs_table_row_num, DVFS_TABLE_ROW_MAX);
 		goto err;
 	}
 
 	if (dvfs_table_size > OF_DATA_NUM_MAX) {
-		dev_err(kbdev->dev, "DVFS table is too big\n");
+		dev_err(kbdev->dev, "DVFS table %d is too big", dvfs_table_num);
 		goto err;
 	}
-
-	if (use_asv_v1)
-		of_property_read_u32_array(np, "gpu_dvfs_table_v1",
-			of_data_int_array, dvfs_table_size);
-	else
-		of_property_read_u32_array(np, "gpu_dvfs_table_v2",
-			of_data_int_array, dvfs_table_size);
+	sprintf(table_name, "gpu_dvfs_table_v%d", dvfs_table_num);
+	if (of_property_read_u32_array(np, table_name, of_data_int_array, dvfs_table_size))
+		goto err;
 
 	of_property_read_u32(np, "gpu_dvfs_max_freq", &scaling_freq_max_devicetree);
 	of_property_read_u32(np, "gpu_dvfs_min_freq", &scaling_freq_min_devicetree);
 	of_property_read_u32(np, "gpu_dvfs_min_freq_compute", &scaling_freq_min_compute);
+
+	/* Check if there is a voltage mapping for each frequency in the ECT table */
+	for (i = 0; i < dvfs_table_row_num; i++) {
+		idx = i * dvfs_table_col_num;
+
+#if IS_ENABLED(CONFIG_CAL_IF)
+		/* Get and validate voltages from cal-if */
+		for (c = 0; c < GPU_DVFS_CLK_COUNT; c++) {
+			if (find_voltage_for_freq(kbdev, of_data_int_array[idx + c],
+				NULL, vf_map[c], level_count[c])) {
+				dev_dbg(kbdev->dev,
+					"Failed to find voltage for clock %u frequency %u in gpu_dvfs_table_v%d\n",
+					c, of_data_int_array[idx + c], dvfs_table_num);
+				goto err;
+			}
+		}
+#endif /* CONFIG_CAL_IF */
+	}
 
 	/* Process DVFS table data from device tree and store it in OPP table */
 	for (i = 0; i < dvfs_table_row_num; i++) {
@@ -585,6 +585,13 @@ static int gpu_dvfs_update_asv_table(struct kbase_device *kbdev)
 		/* Read raw data from device tree table */
 		gpu_dvfs_table[i].clk[GPU_DVFS_CLK_TOP_LEVEL] = of_data_int_array[idx + 0];
 		gpu_dvfs_table[i].clk[GPU_DVFS_CLK_SHADERS]   = of_data_int_array[idx + 1];
+
+#if IS_ENABLED(CONFIG_CAL_IF)
+		for (c = 0; c < GPU_DVFS_CLK_COUNT; c++) {
+			find_voltage_for_freq(kbdev, gpu_dvfs_table[i].clk[c],
+				&(gpu_dvfs_table[i].vol[c]), vf_map[c], level_count[c]);
+		}
+#endif /* CONFIG_CAL_IF */
 
 		gpu_dvfs_table[i].util_min     = of_data_int_array[idx + 2];
 		gpu_dvfs_table[i].util_max     = of_data_int_array[idx + 3];
@@ -610,21 +617,6 @@ static int gpu_dvfs_update_asv_table(struct kbase_device *kbdev)
 
 		if (gpu_dvfs_table[i].clk[GPU_DVFS_CLK_SHADERS] >= scaling_freq_min_compute)
 			pc->dvfs.level_scaling_compute_min = i;
-
-#if IS_ENABLED(CONFIG_CAL_IF)
-		/* Get and validate voltages from cal-if */
-		for (c = 0; c < GPU_DVFS_CLK_COUNT; c++) {
-			if (find_voltage_for_freq(kbdev, gpu_dvfs_table[i].clk[c],
-					&(gpu_dvfs_table[i].vol[c]),
-					vf_map[c], level_count[c])) {
-				dev_err(kbdev->dev,
-					"Failed to find voltage for clock %u frequency %u\n",
-					c, gpu_dvfs_table[i].clk[c]);
-				goto err;
-			}
-		}
-#endif /* CONFIG_CAL_IF */
-
 	}
 
 	pc->dvfs.level_max = 0;
@@ -635,8 +627,40 @@ static int gpu_dvfs_update_asv_table(struct kbase_device *kbdev)
 	return dvfs_table_row_num;
 
 err:
-	dev_err(kbdev->dev, "failed to set GPU ASV table\n");
 	return -EINVAL;
+}
+
+/**
+ * gpu_dvfs_update_asv_table() - Populate the GPU's DVFS table from DT.
+ *
+ * @kbdev: The &struct kbase_device for the GPU.
+ *
+ * This function iterates through the list of DVFS tables available in the device tree
+ * and calls validate_and_parse_dvfs_table() to select the valid one for the device.
+ *
+ * This function will fail if the required data is not present in the GPU's device tree entry.
+ *
+ * Context: Expects the caller to hold the DVFS lock
+ *
+ * Return: Returns the number of opertaing points in the DVFS table on success, -EINVAL on failure.
+ */
+static int gpu_dvfs_update_asv_table(struct kbase_device *kbdev)
+{
+	int dvfs_table_idx, dvfs_table_row_num;
+	struct pixel_context *pc = kbdev->platform_context;
+
+	lockdep_assert_held(&pc->dvfs.lock);
+
+	for (dvfs_table_idx = DVFS_TABLES_MAX; dvfs_table_idx > 0; dvfs_table_idx--) {
+		dvfs_table_row_num = validate_and_parse_dvfs_table(kbdev, dvfs_table_idx);
+		if (dvfs_table_row_num > 0)
+			break;
+	}
+	if (dvfs_table_row_num <= 0) {
+		dev_err(kbdev->dev, "failed to set GPU DVFS table");
+	}
+
+	return dvfs_table_row_num;
 }
 
 /**
