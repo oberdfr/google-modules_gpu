@@ -896,6 +896,14 @@ void kbase_csf_ring_cs_kernel_doorbell(struct kbase_device *kbdev,
 	    WARN_ON(csi_index >= ginfo->stream_num))
 		return;
 
+	/* The access to CSG_DB_REQ/ACK needs to be ordered with respect to
+	 * CS_REQ/ACK to avoid a scenario where CSG_DB_REQ/ACK becomes visible to
+	 * FW before CS_REQ/ACK is set.
+	 *
+	 * 'osh' is used as CPU and GPU would be in the same outer shareable domain.
+	 */
+	dmb(osh);
+
 	value = kbase_csf_firmware_csg_output(ginfo, CSG_DB_ACK);
 	value ^= (1 << csi_index);
 	kbase_csf_firmware_csg_input_mask(ginfo, CSG_DB_REQ, value,
