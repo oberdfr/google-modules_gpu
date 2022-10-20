@@ -9,7 +9,7 @@
  * Boston, MA  02110-1301, USA.
  */
 
-#include "linux/mman.h"
+#include <linux/mman.h>
 #include <mali_kbase.h>
 
 /* mali_kbase_mmap.c
@@ -19,6 +19,7 @@
  */
 
 
+#if 0
 /**
  * align_and_check() - Align the specified pointer to the provided alignment and
  *                     check that it is still in range.
@@ -228,7 +229,7 @@ check_current:
 
 	return -ENOMEM;
 }
-
+#endif
 
 /* This function is based on Linux kernel's arch_get_unmapped_area, but
  * simplified slightly. Modifications come from the fact that some values
@@ -347,15 +348,17 @@ unsigned long kbase_context_get_unmapped_area(struct kbase_context *const kctx,
 #endif
 	}
 
-	info.flags = 0;
+	info.flags = VM_UNMAPPED_AREA_TOPDOWN;
 	info.length = len;
 	info.low_limit = low_limit;
 	info.high_limit = high_limit;
 	info.align_offset = align_offset;
 	info.align_mask = align_mask;
 
-	ret = kbase_unmapped_area_topdown(&info, is_shader_code,
-			is_same_4gb_page);
+	WARN(is_shader_code, "TODO (b/254386546): Ensure shader memory doesn't end on 4GB boundary!");
+	WARN(is_same_4gb_page, "TODO (b/254386546): Ensure no 4GB page straddling!");
+
+	ret = vm_unmapped_area(&info);
 
 	if (IS_ERR_VALUE(ret) && high_limit == mm->mmap_base &&
 	    high_limit < same_va_end_addr) {
@@ -363,8 +366,7 @@ unsigned long kbase_context_get_unmapped_area(struct kbase_context *const kctx,
 		info.low_limit = mm->mmap_base;
 		info.high_limit = min_t(u64, TASK_SIZE, same_va_end_addr);
 
-		ret = kbase_unmapped_area_topdown(&info, is_shader_code,
-				is_same_4gb_page);
+		ret = vm_unmapped_area(&info);
 	}
 
 	return ret;
