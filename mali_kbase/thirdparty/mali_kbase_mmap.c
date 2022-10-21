@@ -19,13 +19,11 @@
  */
 
 
-#if 0
 /**
  * align_and_check() - Align the specified pointer to the provided alignment and
  *                     check that it is still in range.
  * @gap_end:        Highest possible start address for allocation (end of gap in
  *                  address space)
- * @gap_start:      Start address of current memory area / gap in address space
  * @info:           vm_unmapped_area_info structure passed to caller, containing
  *                  alignment, length and limits for the allocation
  * @is_shader_code: True if the allocation is for shader code (which has
@@ -36,13 +34,12 @@
  * Return: true if gap_end is now aligned correctly and is still in range,
  *         false otherwise
  */
-static bool align_and_check(unsigned long *gap_end, unsigned long gap_start,
+static bool align_and_check(unsigned long *gap_end,
 		struct vm_unmapped_area_info *info, bool is_shader_code,
 		bool is_same_4gb_page)
 {
-	/* Compute highest gap address at the desired alignment */
-	(*gap_end) -= info->length;
-	(*gap_end) -= (*gap_end - info->align_offset) & info->align_mask;
+	/* Computing highest address at desired alignment is already handled
+	 * by unmapped_area_topdown() via VM_UNMAPPED_AREA_TOPDOWN */
 
 	if (is_shader_code) {
 		/* Check for 4GB boundary */
@@ -88,13 +85,12 @@ static bool align_and_check(unsigned long *gap_end, unsigned long gap_start,
 	}
 
 
-	if ((*gap_end < info->low_limit) || (*gap_end < gap_start))
+	if (*gap_end < info->low_limit)
 		return false;
-
 
 	return true;
 }
-
+#if 0
 /**
  * kbase_unmapped_area_topdown() - allocates new areas top-down from
  *                                 below the stack limit.
@@ -355,10 +351,12 @@ unsigned long kbase_context_get_unmapped_area(struct kbase_context *const kctx,
 	info.align_offset = align_offset;
 	info.align_mask = align_mask;
 
-	WARN(is_shader_code, "TODO (b/254386546): Ensure shader memory doesn't end on 4GB boundary!");
-	WARN(is_same_4gb_page, "TODO (b/254386546): Ensure no 4GB page straddling!");
-
-	ret = vm_unmapped_area(&info);
+	while ((ret = vm_unmapped_area(&info)) > 0) {
+		if (align_and_check(&ret, &info,
+				is_shader_code, is_same_4gb_page))
+			break;
+		info.high_limit = ret;
+	}
 
 	if (IS_ERR_VALUE(ret) && high_limit == mm->mmap_base &&
 	    high_limit < same_va_end_addr) {
@@ -366,8 +364,16 @@ unsigned long kbase_context_get_unmapped_area(struct kbase_context *const kctx,
 		info.low_limit = mm->mmap_base;
 		info.high_limit = min_t(u64, TASK_SIZE, same_va_end_addr);
 
-		ret = vm_unmapped_area(&info);
+		while ((ret = vm_unmapped_area(&info)) > 0) {
+			if (align_and_check(&ret, &info,
+					is_shader_code, is_same_4gb_page))
+				break;
+			info.high_limit = ret;
+		}
 	}
+
+	VM_BUG_ON(ret != -ENOMEM);
+	WARN_ON(IS_ERR_VALUE(ret));
 
 	return ret;
 }
