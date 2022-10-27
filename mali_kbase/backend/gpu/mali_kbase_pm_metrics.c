@@ -371,13 +371,8 @@ void kbase_pm_get_dvfs_action(struct kbase_device *kbdev)
 	kbase_pm_get_dvfs_metrics(kbdev, &kbdev->pm.backend.metrics.dvfs_last,
 				  diff);
 
-	/* Enable GPU utilisation calculation once b/242801218 is Fixed */
-#if 0
 	utilisation = (100 * diff->time_busy) /
 			max(diff->time_busy + diff->time_idle, 1u);
-#else
-	utilisation = 0;
-#endif
 
 #if !MALI_USE_CSF
 	busy = max(diff->busy_gl + diff->busy_cl[0] + diff->busy_cl[1], 1u);
