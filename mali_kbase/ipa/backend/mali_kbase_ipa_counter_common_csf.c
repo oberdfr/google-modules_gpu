@@ -24,7 +24,7 @@
 
 #define DEFAULT_SCALING_FACTOR 5
 
-/* If the value of GPU_ACTIVE is below this, use the simple model
+/* If the value of GPU_ITER_ACTIVE is below this, use the simple model
  * instead, to avoid extrapolating small amounts of counter data across
  * large sample periods.
  */
@@ -90,7 +90,7 @@ kbase_ipa_attach_ipa_control(struct kbase_ipa_counter_model_data *model_data)
 	int err;
 	size_t i;
 
-	/* Value for GPU_ACTIVE counter also needs to be queried. It is required
+	/* Value for GPU_ITER_ACTIVE counter also needs to be queried. It is required
 	 * for the normalization of top-level and shader core counters.
 	 */
 	model_data->num_counters = 1 + model_data->num_top_level_cntrs +
@@ -105,12 +105,12 @@ kbase_ipa_attach_ipa_control(struct kbase_ipa_counter_model_data *model_data)
 		return -ENOMEM;
 	}
 
-	/* Fill in the description for GPU_ACTIVE counter which is always
+	/* Fill in the description for GPU_ITER_ACTIVE counter which is always
 	 * needed, as mentioned above, regardless of the energy model used
 	 * by the CSF GPUs.
 	 */
 	perf_counters[cnt_idx].type = KBASE_IPA_CORE_TYPE_CSHW;
-	perf_counters[cnt_idx].idx = GPU_ACTIVE_CNT_IDX;
+	perf_counters[cnt_idx].idx = GPU_ITER_ACTIVE_CNT_IDX;
 	perf_counters[cnt_idx].gpu_norm = false;
 	perf_counters[cnt_idx].scaling_factor = 1;
 	cnt_idx++;
@@ -306,7 +306,7 @@ int kbase_ipa_counter_dynamic_coeff(struct kbase_ipa_model *model, u32 *coeffp)
 	 */
 	if (*cnt_values_p > U32_MAX) {
 		dev_warn(kbdev->dev,
-			 "Increment in GPU_ACTIVE counter more than expected");
+			 "Increment in GPU_ITER_ACTIVE counter more than expected");
 		return -ERANGE;
 	}
 

@@ -1022,8 +1022,8 @@ struct kbase_csf_scheduler {
  */
 #define DISABLE_GLB_PWROFF_TIMER (0)
 
-/* Index of the GPU_ACTIVE counter within the CSHW counter block */
-#define GPU_ACTIVE_CNT_IDX (4)
+/* Index of the GPU_ITER_ACTIVE counter within the CSHW counter block */
+#define GPU_ITER_ACTIVE_CNT_IDX (6)
 
 /*
  * Maximum number of sessions that can be managed by the IPA Control component.
