@@ -350,6 +350,7 @@ struct pixel_context {
 
 		struct gpu_dvfs_opp *table;
 		int table_size;
+		int step_up_val;
 		int level;
 		int level_target;
 		int level_max;
@@ -371,7 +372,7 @@ struct pixel_context {
 			int last_level;
 			int *transtab;
 #if !MALI_USE_CSF
-			struct gpu_dvfs_metrics_uid_stats *work_uid_stats[BASE_JM_MAX_NR_SLOTS];
+			struct gpu_dvfs_metrics_uid_stats *work_uid_stats[BASE_JM_MAX_NR_SLOTS * SLOT_RB_SIZE];
 #else
 			struct gpu_dvfs_metrics_uid_stats *work_uid_stats[MAX_SUPPORTED_CSGS];
 #endif /* !MALI_USE_CSF */

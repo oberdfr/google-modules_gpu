@@ -33,6 +33,31 @@ static struct gpu_dvfs_opp gpu_dvfs_table[DVFS_TABLE_ROW_MAX];
 /* DVFS event handling code */
 
 /**
+ * gpu_dvfs_set_freq() - Request a frequency change for a GPU domain
+ *
+ * @kbdev:   &struct kbase_device for the GPU.
+ * @domain:  The GPU domain that shall have it's frequency changed.
+ * @level:   The frequency level to set the GPU domain to.
+ *
+ * Context: Expects the caller to hold the domain access lock
+ *
+ * Return: See cal_dfs_set_rate
+ */
+static int gpu_dvfs_set_freq(struct kbase_device *kbdev, enum gpu_dvfs_clk_index domain, int level)
+{
+#if IS_ENABLED(CONFIG_CAL_IF)
+	struct pixel_context *pc = kbdev->platform_context;
+
+	lockdep_assert_held(&pc->pm.domain->access_lock);
+
+	return cal_dfs_set_rate(pc->dvfs.clks[domain].cal_id, pc->dvfs.table[level].clk[domain]);
+#else
+	(void)kbdev, (void)domain, (void)level;
+	return -1;
+#endif /* CONFIG_CAL_IF */
+}
+
+/**
  * gpu_dvfs_set_new_level() - Updates the GPU operating point.
  *
  * @kbdev:      The &struct kbase_device for the GPU.
@@ -44,9 +69,6 @@ static struct gpu_dvfs_opp gpu_dvfs_table[DVFS_TABLE_ROW_MAX];
 static int gpu_dvfs_set_new_level(struct kbase_device *kbdev, int next_level)
 {
 	struct pixel_context *pc = kbdev->platform_context;
-#if IS_ENABLED(CONFIG_CAL_IF)
-	int c;
-#endif /* CONFIG_CAL_IF */
 
 	lockdep_assert_held(&pc->dvfs.lock);
 
@@ -60,10 +82,17 @@ static int gpu_dvfs_set_new_level(struct kbase_device *kbdev, int next_level)
 	mutex_lock(&pc->pm.domain->access_lock);
 #endif /* CONFIG_EXYNOS_PD */
 
-#if IS_ENABLED(CONFIG_CAL_IF)
-	for (c = 0; c < GPU_DVFS_CLK_COUNT; c++)
-		cal_dfs_set_rate(pc->dvfs.clks[c].cal_id, pc->dvfs.table[next_level].clk[c]);
-#endif /* CONFIG_CAL_IF */
+	/* We must enforce the CLK_G3DL2 >= CLK_G3D constraint.
+	 * When clocking down we must set G3D CLK first to avoid violating the constraint.
+	 */
+	if (next_level > pc->dvfs.level) {
+		gpu_dvfs_set_freq(kbdev, GPU_DVFS_CLK_SHADERS, next_level);
+		gpu_dvfs_set_freq(kbdev, GPU_DVFS_CLK_TOP_LEVEL, next_level);
+	} else {
+		gpu_dvfs_set_freq(kbdev, GPU_DVFS_CLK_TOP_LEVEL, next_level);
+		gpu_dvfs_set_freq(kbdev, GPU_DVFS_CLK_SHADERS, next_level);
+	}
+
 
 #if IS_ENABLED(CONFIG_EXYNOS_PD)
 	mutex_unlock(&pc->pm.domain->access_lock);
@@ -698,7 +727,7 @@ static int gpu_dvfs_set_initial_level(struct kbase_device *kbdev)
 
 #if IS_ENABLED(CONFIG_CAL_IF)
 	for (c = 0; c < GPU_DVFS_CLK_COUNT; c++) {
-		ret = cal_dfs_set_rate(pc->dvfs.clks[c].cal_id, pc->dvfs.table[level].clk[c]);
+		ret = gpu_dvfs_set_freq(kbdev, c, level);
 		if (ret) {
 			dev_err(kbdev->dev,
 				"Failed to set boot frequency %d on clock index %d (err: %d)\n",
@@ -767,6 +796,12 @@ int gpu_dvfs_init(struct kbase_device *kbdev)
 	pc->dvfs.level = pc->dvfs.level_min;
 	pc->dvfs.level_target = pc->dvfs.level_min;
 	if (gpu_dvfs_set_initial_level(kbdev)) {
+		ret = -EINVAL;
+		goto done;
+	}
+
+	/* Setup dvfs step up value */
+	if (of_property_read_u32(np, "gpu_dvfs_step_up_val", &pc->dvfs.step_up_val)) {
 		ret = -EINVAL;
 		goto done;
 	}
