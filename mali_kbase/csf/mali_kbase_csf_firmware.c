@@ -2282,7 +2282,6 @@ int kbase_csf_firmware_load_init(struct kbase_device *kbdev)
 
 	/* Firmware loaded successfully */
 	dev_info(kbdev->dev, "Firmware load successful");
-	release_firmware(firmware);
 	/* Firmware loaded successfully, ret = 0 */
 	KBASE_KTRACE_ADD(kbdev, CSF_FIRMWARE_BOOT, NULL,
 			(((u64)version_hash) << 32) |
