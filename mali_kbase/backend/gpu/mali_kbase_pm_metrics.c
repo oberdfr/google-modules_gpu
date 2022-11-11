@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2011-2021 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2011-2022 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -24,6 +24,7 @@
  */
 
 #include <mali_kbase.h>
+#include <mali_kbase_config_defaults.h>
 #include <mali_kbase_pm.h>
 #include <backend/gpu/mali_kbase_pm_internal.h>
 
@@ -44,31 +45,55 @@
 #define KBASE_PM_TIME_SHIFT			8
 
 #if MALI_USE_CSF
-/* To get the GPU_ACTIVE value in nano seconds unit */
-#define GPU_ACTIVE_SCALING_FACTOR ((u64)1E9)
+/* To get the GPU_ITER_ACTIVE value in nano seconds unit */
+#define GPU_ITER_ACTIVE_SCALING_FACTOR ((u64)1E9)
 #endif
+
+/*
+ * Possible state transitions
+ * ON        -> ON | OFF | STOPPED
+ * STOPPED   -> ON | OFF
+ * OFF       -> ON
+ *
+ *
+ * ┌─e─┐┌────────────f─────────────┐
+ * │   v│                          v
+ * └───ON ──a──> STOPPED ──b──> OFF
+ *     ^^            │             │
+ *     │└──────c─────┘             │
+ *     │                           │
+ *     └─────────────d─────────────┘
+ *
+ * Transition effects:
+ * a. None
+ * b. Timer expires without restart
+ * c. Timer is not stopped, timer period is unaffected
+ * d. Timer must be restarted
+ * e. Callback is executed and the timer is restarted
+ * f. Timer is cancelled, or the callback is waited on if currently executing. This is called during
+ *    tear-down and should not be subject to a race from an OFF->ON transition
+ */
+enum dvfs_metric_timer_state { TIMER_OFF, TIMER_STOPPED, TIMER_ON };
 
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 static enum hrtimer_restart dvfs_callback(struct hrtimer *timer)
 {
-	unsigned long flags;
 	struct kbasep_pm_metrics_state *metrics;
 
-	KBASE_DEBUG_ASSERT(timer != NULL);
+	if (WARN_ON(!timer))
+		return HRTIMER_NORESTART;
 
 	metrics = container_of(timer, struct kbasep_pm_metrics_state, timer);
+
+	/* Transition (b) to fully off if timer was stopped, don't restart the timer in this case */
+	if (atomic_cmpxchg(&metrics->timer_state, TIMER_STOPPED, TIMER_OFF) != TIMER_ON)
+		return HRTIMER_NORESTART;
+
 	kbase_pm_get_dvfs_action(metrics->kbdev);
 
-	spin_lock_irqsave(&metrics->lock, flags);
-
-	if (metrics->timer_active)
-		hrtimer_start(timer,
-			HR_TIMER_DELAY_MSEC(metrics->kbdev->pm.dvfs_period),
-			HRTIMER_MODE_REL);
-
-	spin_unlock_irqrestore(&metrics->lock, flags);
-
-	return HRTIMER_NORESTART;
+	/* Set the new expiration time and restart (transition e) */
+	hrtimer_forward_now(timer, HR_TIMER_DELAY_MSEC(metrics->kbdev->pm.dvfs_period));
+	return HRTIMER_RESTART;
 }
 #endif /* CONFIG_MALI_MIDGARD_DVFS */
 
@@ -83,21 +108,21 @@ int kbasep_pm_metrics_init(struct kbase_device *kbdev)
 
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 	kbdev->pm.backend.metrics.kbdev = kbdev;
-	kbdev->pm.backend.metrics.time_period_start = ktime_get();
+	kbdev->pm.backend.metrics.time_period_start = ktime_get_raw();
 	kbdev->pm.backend.metrics.values.time_busy = 0;
 	kbdev->pm.backend.metrics.values.time_idle = 0;
 	kbdev->pm.backend.metrics.values.time_in_protm = 0;
 
-	perf_counter.scaling_factor = GPU_ACTIVE_SCALING_FACTOR;
+	perf_counter.scaling_factor = GPU_ITER_ACTIVE_SCALING_FACTOR;
 
 	/* Normalize values by GPU frequency */
 	perf_counter.gpu_norm = true;
 
-	/* We need the GPU_ACTIVE counter, which is in the CSHW group */
+	/* We need the GPU_ITER_ACTIVE counter, which is in the CSHW group */
 	perf_counter.type = KBASE_IPA_CORE_TYPE_CSHW;
 
-	/* We need the GPU_ACTIVE counter */
-	perf_counter.idx = GPU_ACTIVE_CNT_IDX;
+	/* We need the GPU_ITER_ACTIVE counter */
+	perf_counter.idx = GPU_ITER_ACTIVE_CNT_IDX;
 
 	err = kbase_ipa_control_register(
 		kbdev, &perf_counter, NUM_PERF_COUNTERS,
@@ -111,7 +136,7 @@ int kbasep_pm_metrics_init(struct kbase_device *kbdev)
 #else
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 	kbdev->pm.backend.metrics.kbdev = kbdev;
-	kbdev->pm.backend.metrics.time_period_start = ktime_get();
+	kbdev->pm.backend.metrics.time_period_start = ktime_get_raw();
 
 	kbdev->pm.backend.metrics.gpu_active = false;
 	kbdev->pm.backend.metrics.active_cl_ctx[0] = 0;
@@ -134,6 +159,7 @@ int kbasep_pm_metrics_init(struct kbase_device *kbdev)
 							HRTIMER_MODE_REL);
 	kbdev->pm.backend.metrics.timer.function = dvfs_callback;
 	kbdev->pm.backend.metrics.initialized = true;
+	atomic_set(&kbdev->pm.backend.metrics.timer_state, TIMER_OFF);
 	kbase_pm_metrics_start(kbdev);
 #endif /* CONFIG_MALI_MIDGARD_DVFS */
 
@@ -152,16 +178,12 @@ KBASE_EXPORT_TEST_API(kbasep_pm_metrics_init);
 void kbasep_pm_metrics_term(struct kbase_device *kbdev)
 {
 #ifdef CONFIG_MALI_MIDGARD_DVFS
-	unsigned long flags;
-
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 
-	spin_lock_irqsave(&kbdev->pm.backend.metrics.lock, flags);
-	kbdev->pm.backend.metrics.timer_active = false;
-	spin_unlock_irqrestore(&kbdev->pm.backend.metrics.lock, flags);
-
-	hrtimer_cancel(&kbdev->pm.backend.metrics.timer);
+	/* Cancel the timer, and block if the callback is currently executing (transition f) */
 	kbdev->pm.backend.metrics.initialized = false;
+	atomic_set(&kbdev->pm.backend.metrics.timer_state, TIMER_OFF);
+	hrtimer_cancel(&kbdev->pm.backend.metrics.timer);
 #endif /* CONFIG_MALI_MIDGARD_DVFS */
 
 #if MALI_USE_CSF
@@ -180,7 +202,7 @@ KBASE_EXPORT_TEST_API(kbasep_pm_metrics_term);
 static void kbase_pm_get_dvfs_utilisation_calc(struct kbase_device *kbdev)
 {
 	int err;
-	u64 gpu_active_counter;
+	u64 gpu_iter_active_counter;
 	u64 protected_time;
 	ktime_t now;
 
@@ -191,19 +213,19 @@ static void kbase_pm_get_dvfs_utilisation_calc(struct kbase_device *kbdev)
 	 */
 	err = kbase_ipa_control_query(
 		kbdev, kbdev->pm.backend.metrics.ipa_control_client,
-		&gpu_active_counter, 1, &protected_time);
+		&gpu_iter_active_counter, 1, &protected_time);
 
-	/* Read the timestamp after reading the GPU_ACTIVE counter value.
+	/* Read the timestamp after reading the GPU_ITER_ACTIVE counter value.
 	 * This ensures the time gap between the 2 reads is consistent for
-	 * a meaningful comparison between the increment of GPU_ACTIVE and
+	 * a meaningful comparison between the increment of GPU_ITER_ACTIVE and
 	 * elapsed time. The lock taken inside kbase_ipa_control_query()
 	 * function can cause lot of variation.
 	 */
-	now = ktime_get();
+	now = ktime_get_raw();
 
 	if (err) {
 		dev_err(kbdev->dev,
-			"Failed to query the increment of GPU_ACTIVE counter: err=%d",
+			"Failed to query the increment of GPU_ITER_ACTIVE counter: err=%d",
 			err);
 	} else {
 		u64 diff_ns;
@@ -220,27 +242,29 @@ static void kbase_pm_get_dvfs_utilisation_calc(struct kbase_device *kbdev)
 		diff_ns = (u64)diff_ns_signed;
 
 #if !IS_ENABLED(CONFIG_MALI_NO_MALI)
-		/* The GPU_ACTIVE counter shouldn't clock-up more time than has
+		/* The GPU_ITER_ACTIVE counter shouldn't clock-up more time than has
 		 * actually elapsed - but still some margin needs to be given
 		 * when doing the comparison. There could be some drift between
 		 * the CPU and GPU clock.
 		 *
 		 * Can do the check only in a real driver build, as an arbitrary
-		 * value for GPU_ACTIVE can be fed into dummy model in no_mali
+		 * value for GPU_ITER_ACTIVE can be fed into dummy model in no_mali
 		 * configuration which may not correspond to the real elapsed
 		 * time.
 		 */
 		if (!kbdev->pm.backend.metrics.skip_gpu_active_sanity_check) {
-			/* Use a margin value that is approximately 1% of the time
-			 * difference.
+			/* The margin is scaled to allow for the worst-case
+			 * scenario where the samples are maximally separated,
+			 * plus a small offset for sampling errors.
 			 */
-			u64 margin_ns = diff_ns >> 6;
+			u64 const MARGIN_NS =
+				IPA_CONTROL_TIMER_DEFAULT_VALUE_MS * NSEC_PER_MSEC * 3 / 2;
 
-			if (gpu_active_counter > (diff_ns + margin_ns)) {
+			if (gpu_iter_active_counter > (diff_ns + MARGIN_NS)) {
 				dev_info(
 					kbdev->dev,
 					"GPU activity takes longer than time interval: %llu ns > %llu ns",
-					(unsigned long long)gpu_active_counter,
+					(unsigned long long)gpu_iter_active_counter,
 					(unsigned long long)diff_ns);
 			}
 		}
@@ -248,7 +272,7 @@ static void kbase_pm_get_dvfs_utilisation_calc(struct kbase_device *kbdev)
 		/* Calculate time difference in units of 256ns */
 		ns_time = (u32)(diff_ns >> KBASE_PM_TIME_SHIFT);
 
-		/* Add protected_time to gpu_active_counter so that time in
+		/* Add protected_time to gpu_iter_active_counter so that time in
 		 * protected mode is included in the apparent GPU active time,
 		 * then convert it from units of 1ns to units of 256ns, to
 		 * match what JM GPUs use. The assumption is made here that the
@@ -260,19 +284,19 @@ static void kbase_pm_get_dvfs_utilisation_calc(struct kbase_device *kbdev)
 		 * the chances of overflows.
 		 */
 		protected_time >>= KBASE_PM_TIME_SHIFT;
-		gpu_active_counter >>= KBASE_PM_TIME_SHIFT;
-		gpu_active_counter += protected_time;
+		gpu_iter_active_counter >>= KBASE_PM_TIME_SHIFT;
+		gpu_iter_active_counter += protected_time;
 
 		/* Ensure the following equations don't go wrong if ns_time is
-		 * slightly larger than gpu_active_counter somehow
+		 * slightly larger than gpu_iter_active_counter somehow
 		 */
-		gpu_active_counter = MIN(gpu_active_counter, ns_time);
+		gpu_iter_active_counter = MIN(gpu_iter_active_counter, ns_time);
 
 		kbdev->pm.backend.metrics.values.time_busy +=
-			gpu_active_counter;
+			gpu_iter_active_counter;
 
 		kbdev->pm.backend.metrics.values.time_idle +=
-			ns_time - gpu_active_counter;
+			ns_time - gpu_iter_active_counter;
 
 		/* Also make time in protected mode available explicitly,
 		 * so users of this data have this info, too.
@@ -331,7 +355,7 @@ void kbase_pm_get_dvfs_metrics(struct kbase_device *kbdev,
 #if MALI_USE_CSF
 	kbase_pm_get_dvfs_utilisation_calc(kbdev);
 #else
-	kbase_pm_get_dvfs_utilisation_calc(kbdev, ktime_get());
+	kbase_pm_get_dvfs_utilisation_calc(kbdev, ktime_get_raw());
 #endif
 
 	memset(diff, 0, sizeof(*diff));
@@ -371,13 +395,8 @@ void kbase_pm_get_dvfs_action(struct kbase_device *kbdev)
 	kbase_pm_get_dvfs_metrics(kbdev, &kbdev->pm.backend.metrics.dvfs_last,
 				  diff);
 
-	/* Enable GPU utilisation calculation once b/242801218 is Fixed */
-#if 0
 	utilisation = (100 * diff->time_busy) /
 			max(diff->time_busy + diff->time_idle, 1u);
-#else
-	utilisation = 0;
-#endif
 
 #if !MALI_USE_CSF
 	busy = max(diff->busy_gl + diff->busy_cl[0] + diff->busy_cl[1], 1u);
@@ -401,57 +420,33 @@ void kbase_pm_get_dvfs_action(struct kbase_device *kbdev)
 
 bool kbase_pm_metrics_is_active(struct kbase_device *kbdev)
 {
-	bool isactive;
-	unsigned long flags;
-
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 
-	spin_lock_irqsave(&kbdev->pm.backend.metrics.lock, flags);
-	isactive = kbdev->pm.backend.metrics.timer_active;
-	spin_unlock_irqrestore(&kbdev->pm.backend.metrics.lock, flags);
-
-	return isactive;
+	return atomic_read(&kbdev->pm.backend.metrics.timer_state) == TIMER_ON;
 }
 KBASE_EXPORT_TEST_API(kbase_pm_metrics_is_active);
 
 void kbase_pm_metrics_start(struct kbase_device *kbdev)
 {
-	unsigned long flags;
-	bool update = true;
+	struct kbasep_pm_metrics_state *metrics = &kbdev->pm.backend.metrics;
 
-	if (unlikely(!kbdev->pm.backend.metrics.initialized))
+	if (unlikely(!metrics->initialized))
 		return;
 
-	spin_lock_irqsave(&kbdev->pm.backend.metrics.lock, flags);
-	if (!kbdev->pm.backend.metrics.timer_active)
-		kbdev->pm.backend.metrics.timer_active = true;
-	else
-		update = false;
-	spin_unlock_irqrestore(&kbdev->pm.backend.metrics.lock, flags);
-
-	if (update)
-		hrtimer_start(&kbdev->pm.backend.metrics.timer,
-			HR_TIMER_DELAY_MSEC(kbdev->pm.dvfs_period),
-			HRTIMER_MODE_REL);
+	/* Transition to ON, from a stopped state (transition c) */
+	if (atomic_xchg(&metrics->timer_state, TIMER_ON) == TIMER_OFF)
+		/* Start the timer only if it's been fully stopped (transition d)*/
+		hrtimer_start(&metrics->timer, HR_TIMER_DELAY_MSEC(kbdev->pm.dvfs_period),
+			      HRTIMER_MODE_REL);
 }
 
 void kbase_pm_metrics_stop(struct kbase_device *kbdev)
 {
-	unsigned long flags;
-	bool update = true;
-
 	if (unlikely(!kbdev->pm.backend.metrics.initialized))
 		return;
 
-	spin_lock_irqsave(&kbdev->pm.backend.metrics.lock, flags);
-	if (kbdev->pm.backend.metrics.timer_active)
-		kbdev->pm.backend.metrics.timer_active = false;
-	else
-		update = false;
-	spin_unlock_irqrestore(&kbdev->pm.backend.metrics.lock, flags);
-
-	if (update)
-		hrtimer_cancel(&kbdev->pm.backend.metrics.timer);
+	/* Timer is Stopped if its currently on (transition a) */
+	atomic_cmpxchg(&kbdev->pm.backend.metrics.timer_state, TIMER_ON, TIMER_STOPPED);
 }
 
 
@@ -517,7 +512,7 @@ void kbase_pm_metrics_update(struct kbase_device *kbdev, ktime_t *timestamp)
 	spin_lock_irqsave(&kbdev->pm.backend.metrics.lock, flags);
 
 	if (!timestamp) {
-		now = ktime_get();
+		now = ktime_get_raw();
 		timestamp = &now;
 	}
 

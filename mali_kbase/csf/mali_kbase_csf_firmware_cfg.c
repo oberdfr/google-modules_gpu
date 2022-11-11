@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2020-2021 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2020-2022 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -22,13 +22,10 @@
 #include <mali_kbase.h>
 #include "mali_kbase_csf_firmware_cfg.h"
 #include <mali_kbase_reset_gpu.h>
+#include <linux/version.h>
 
 #if CONFIG_SYSFS
 #define CSF_FIRMWARE_CFG_SYSFS_DIR_NAME "firmware_config"
-
-#ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
-#define HOST_CONTROLS_SC_RAILS_CFG_ENTRY_NAME "Host controls SC rails"
-#endif
 
 /**
  * struct firmware_config - Configuration item within the MCU firmware
@@ -139,12 +136,6 @@ static ssize_t store_fw_cfg(struct kobject *kobj,
 			return -EINVAL;
 		}
 
-#ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
-		if (!strcmp(config->name,
-			    HOST_CONTROLS_SC_RAILS_CFG_ENTRY_NAME))
-			return -EPERM;
-#endif
-
 		if ((val < config->min) || (val > config->max))
 			return -EINVAL;
 
@@ -219,11 +210,18 @@ static struct attribute *fw_cfg_attrs[] = {
 	&fw_cfg_attr_cur,
 	NULL,
 };
+#if (KERNEL_VERSION(5, 2, 0) <= LINUX_VERSION_CODE)
+ATTRIBUTE_GROUPS(fw_cfg);
+#endif
 
 static struct kobj_type fw_cfg_kobj_type = {
 	.release = &fw_cfg_kobj_release,
 	.sysfs_ops = &fw_cfg_ops,
+#if (KERNEL_VERSION(5, 2, 0) <= LINUX_VERSION_CODE)
+	.default_groups = fw_cfg_groups,
+#else
 	.default_attrs = fw_cfg_attrs,
+#endif
 };
 
 int kbase_csf_firmware_cfg_init(struct kbase_device *kbdev)
@@ -283,9 +281,8 @@ void kbase_csf_firmware_cfg_term(struct kbase_device *kbdev)
 }
 
 int kbase_csf_firmware_cfg_option_entry_parse(struct kbase_device *kbdev,
-					      const struct firmware *fw,
-					      const u32 *entry,
-					      unsigned int size, bool updatable)
+					      const struct kbase_csf_mcu_fw *const fw,
+					      const u32 *entry, unsigned int size, bool updatable)
 {
 	const char *name = (char *)&entry[3];
 	struct firmware_config *config;
@@ -318,23 +315,21 @@ int kbase_csf_firmware_cfg_option_entry_parse(struct kbase_device *kbdev,
 	return 0;
 }
 
-#ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
-int kbase_csf_firmware_cfg_enable_host_ctrl_sc_rails(struct kbase_device *kbdev)
+int kbase_csf_firmware_cfg_find_config_address(struct kbase_device *kbdev, const char *name, u32* addr)
 {
 	struct firmware_config *config;
 
 	list_for_each_entry(config, &kbdev->csf.firmware_config, node) {
-		if (strcmp(config->name,
-			   HOST_CONTROLS_SC_RAILS_CFG_ENTRY_NAME))
+		if (strcmp(config->name, name) || !config->address)
 			continue;
 
-		kbase_csf_update_firmware_memory(kbdev, config->address, 1);
+		*addr = config->address;
 		return 0;
 	}
 
 	return -ENOENT;
 }
-#endif
+
 
 #else
 int kbase_csf_firmware_cfg_init(struct kbase_device *kbdev)
@@ -348,16 +343,9 @@ void kbase_csf_firmware_cfg_term(struct kbase_device *kbdev)
 }
 
 int kbase_csf_firmware_cfg_option_entry_parse(struct kbase_device *kbdev,
-		const struct firmware *fw,
-		const u32 *entry, unsigned int size)
+					      const struct kbase_csf_mcu_fw *const fw,
+					      const u32 *entry, unsigned int size)
 {
 	return 0;
 }
-
-#ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
-int kbase_csf_firmware_cfg_enable_host_ctrl_sc_rails(struct kbase_device *kbdev)
-{
-	return 0;
-}
-#endif
 #endif /* CONFIG_SYSFS */

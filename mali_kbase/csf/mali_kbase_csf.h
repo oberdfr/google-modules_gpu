@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  *
- * (C) COPYRIGHT 2018-2021 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2018-2022 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -48,7 +48,9 @@
 
 #define FIRMWARE_PING_INTERVAL_MS (12000 * KBASE_TIMEOUT_MULTIPLIER) /* 12 seconds */
 
+/* TODO: Other platforms use 60ms; consider tuning this value */
 #define FIRMWARE_IDLE_HYSTERESIS_TIME_MS (100)
+
 #define MALI_HOST_CONTROLS_SC_RAILS_IDLE_TIMER_US (600)
 
 /* Idle hysteresis time can be scaled down when GPU sleep feature is used */
@@ -162,7 +164,7 @@ int kbase_csf_queue_bind(struct kbase_context *kctx,
  *			    resources allocated for this queue if there
  *			    are any.
  *
- * @queue:	  Pointer to queue to be unbound.
+ * @queue:	Pointer to queue to be unbound.
  * @process_exit: Flag to indicate if process exit is happening.
  */
 void kbase_csf_queue_unbind(struct kbase_queue *queue, bool process_exit);
