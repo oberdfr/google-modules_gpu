@@ -10,6 +10,7 @@
 
 /* Power management */
 #ifdef CONFIG_MALI_PIXEL_GPU_PM
+bool gpu_pm_get_power_state_nolock(struct kbase_device *kbdev);
 bool gpu_pm_get_power_state(struct kbase_device *kbdev);
 int gpu_pm_init(struct kbase_device *kbdev);
 void gpu_pm_term(struct kbase_device *kbdev);
