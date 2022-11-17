@@ -286,7 +286,7 @@ static int gpu_pm_power_on_top_nolock(struct kbase_device *kbdev)
 	}
 #endif
 
-#ifdef CONFIG_SOC_ZUMA
+#if IS_ENABLED(CONFIG_SOC_ZUMA) && defined(CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING)
 	if (exynos_smc(SMC_DRM_G3D_PPCFW_RESTORE, 0, 0, 0) != 0) {
 		dev_err(kbdev->dev, "Couldn't restore G3D PPCFW");
 	}
@@ -329,7 +329,7 @@ static void gpu_pm_power_off_top_nolock(struct kbase_device *kbdev)
 {
 	struct pixel_context *pc = kbdev->platform_context;
 
-#ifdef CONFIG_SOC_ZUMA
+#if IS_ENABLED(CONFIG_SOC_ZUMA) && defined(CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING)
 	if (exynos_smc(SMC_DRM_G3D_PPCFW_OFF, 0, 0, 0) != 0) {
 		dev_err(kbdev->dev, "Couldn't disable G3D PPCFW");
 	}
