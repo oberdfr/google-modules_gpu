@@ -82,6 +82,13 @@ static int gpu_dvfs_set_new_level(struct kbase_device *kbdev, int next_level)
 	mutex_lock(&pc->pm.domain->access_lock);
 #endif /* CONFIG_EXYNOS_PD */
 
+	if (!gpu_pm_get_power_state_nolock(kbdev)) {
+#if IS_ENABLED(CONFIG_EXYNOS_PD)
+		mutex_unlock(&pc->pm.domain->access_lock);
+#endif /* CONFIG_EXYNOS_PD */
+		return 0;
+	}
+
 	/* We must enforce the CLK_G3DL2 >= CLK_G3D constraint.
 	 * When clocking down we must set G3D CLK first to avoid violating the constraint.
 	 */
@@ -92,7 +99,6 @@ static int gpu_dvfs_set_new_level(struct kbase_device *kbdev, int next_level)
 		gpu_dvfs_set_freq(kbdev, GPU_DVFS_CLK_TOP_LEVEL, next_level);
 		gpu_dvfs_set_freq(kbdev, GPU_DVFS_CLK_SHADERS, next_level);
 	}
-
 
 #if IS_ENABLED(CONFIG_EXYNOS_PD)
 	mutex_unlock(&pc->pm.domain->access_lock);

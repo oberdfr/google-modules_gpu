@@ -286,6 +286,11 @@ static int gpu_pm_power_on_top_nolock(struct kbase_device *kbdev)
 	}
 #endif
 
+#if IS_ENABLED(CONFIG_SOC_ZUMA) && defined(CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING)
+	if (exynos_smc(SMC_DRM_G3D_PPCFW_RESTORE, 0, 0, 0) != 0) {
+		dev_err(kbdev->dev, "Couldn't restore G3D PPCFW");
+	}
+#endif
 	pc->pm.state = GPU_POWER_LEVEL_STACKS;
 
 	return ret;
@@ -323,6 +328,12 @@ static int gpu_pm_power_on_top(struct kbase_device *kbdev)
 static void gpu_pm_power_off_top_nolock(struct kbase_device *kbdev)
 {
 	struct pixel_context *pc = kbdev->platform_context;
+
+#if IS_ENABLED(CONFIG_SOC_ZUMA) && defined(CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING)
+	if (exynos_smc(SMC_DRM_G3D_PPCFW_OFF, 0, 0, 0) != 0) {
+		dev_err(kbdev->dev, "Couldn't disable G3D PPCFW");
+	}
+#endif
 
 	if (pc->pm.state == GPU_POWER_LEVEL_STACKS) {
 		pm_runtime_put_sync(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES]);
@@ -669,6 +680,27 @@ struct kbase_pm_callback_conf pm_callbacks = {
 };
 
 /**
+ * gpu_pm_get_power_state_nolock() - See gpu_pm_get_power_state
+ *
+ * @kbdev: The &struct kbase_device for the GPU.
+ */
+bool gpu_pm_get_power_state_nolock(struct kbase_device *kbdev)
+{
+	bool ret = true;
+#if IS_ENABLED(CONFIG_EXYNOS_PMU_IF)
+	unsigned int val = 0;
+	struct pixel_context *pc = kbdev->platform_context;
+
+	lockdep_assert_held(&pc->pm.domain->access_lock);
+
+	exynos_pmu_read(pc->pm.status_reg_offset, &val);
+	ret = ((val & pc->pm.status_local_power_mask) == pc->pm.status_local_power_mask);
+#endif /* CONFIG_EXYNOS_PMU_IF */
+
+	return ret;
+}
+
+/**
  * gpu_pm_get_power_state() - Returns the current power state of the GPU.
  *
  * @kbdev: The &struct kbase_device for the GPU.
@@ -681,18 +713,15 @@ bool gpu_pm_get_power_state(struct kbase_device *kbdev)
 {
 	bool ret = true;
 #if IS_ENABLED(CONFIG_EXYNOS_PMU_IF)
-	unsigned int val = 0;
 	struct pixel_context *pc = kbdev->platform_context;
 
 	mutex_lock(&pc->pm.domain->access_lock);
-	exynos_pmu_read(pc->pm.status_reg_offset, &val);
-	ret = ((val & pc->pm.status_local_power_mask) == pc->pm.status_local_power_mask);
+	ret = gpu_pm_get_power_state_nolock(kbdev);
 	mutex_unlock(&pc->pm.domain->access_lock);
 #endif /* CONFIG_EXYNOS_PMU_IF */
 
 	return ret;
 }
-
 
 /**
  * gpu_pm_init() - Initializes power management control for a GPU.
