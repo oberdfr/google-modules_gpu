@@ -16,6 +16,8 @@
 #include <linux/soc/samsung/exynos-smc.h>
 #endif /* CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING */
 
+#include <soc/google/pkvm-s2mpu.h>
+
 /* Mali core includes */
 #include <mali_kbase.h>
 #ifdef CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING
@@ -171,6 +173,28 @@ static int gpu_fw_cfg_init(struct kbase_device *kbdev) {
 }
 
 /**
+ * gpu_s2mpu_init - Initialize S2MPU for G3D
+ *
+ * @kbdev: The &struct kbase_device for the GPU.
+ *
+ * Return: On success, returns 0. On failure an error code is returned.
+ */
+static int gpu_s2mpu_init(struct kbase_device *kbdev)
+{
+	int ret = 0;
+
+	if (IS_ENABLED(CONFIG_PKVM_S2MPU)) {
+		ret = pkvm_s2mpu_of_link(kbdev->dev);
+		if (ret == -EAGAIN)
+			ret = -EPROBE_DEFER;
+		else if (ret)
+			dev_err(kbdev->dev, "can't link with s2mpu, error %d\n", ret);
+	}
+
+	return ret;
+}
+
+/**
  * gpu_pixel_init() - Initializes the Pixel integration for the Mali GPU.
  *
  * @kbdev: The &struct kbase_device for the GPU.
@@ -192,6 +216,10 @@ static int gpu_pixel_init(struct kbase_device *kbdev)
 
 	kbdev->platform_context = pc;
 	pc->kbdev = kbdev;
+
+	ret = gpu_s2mpu_init(kbdev);
+	if (ret)
+		goto done;
 
 	ret = gpu_pm_init(kbdev);
 	if (ret)
