@@ -235,12 +235,12 @@ static int gpu_s2mpu_init(struct kbase_device *kbdev)
 {
 	int ret = 0;
 
-	if (IS_ENABLED(CONFIG_PKVM_S2MPU)) {
-		ret = pkvm_s2mpu_of_link(kbdev->dev);
+	if (IS_ENABLED(CONFIG_PKVM_S2MPU_V9)) {
+		ret = pkvm_s2mpu_of_link_v9(kbdev->dev);
 		if (ret == -EAGAIN)
 			ret = -EPROBE_DEFER;
 		else if (ret)
-			dev_err(kbdev->dev, "can't link with s2mpu, error %d\n", ret);
+			dev_err(kbdev->dev, "can't link with s2mpu v9, error %d\n", ret);
 	}
 
 	return ret;
