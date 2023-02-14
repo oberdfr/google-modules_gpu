@@ -38,6 +38,12 @@
 #error "s2mpu device runtime PM control is not expected to be enabled with host-side shader rail control"
 #endif
 
+#ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
+/* Auto-suspend timeout for CORES domain */
+#define CORES_SUSPEND_HYSTERISIS_TIME_MS 20
+/* Auto-suspend timeout for TOP domain */
+#define TOP_SUSPEND_HYSTERISIS_TIME_MS 40
+#endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
 /*
  * GPU_PM_DOMAIN_NAMES - names for GPU power domains.
  *
@@ -365,7 +371,12 @@ static void gpu_pm_power_off_top_nolock(struct kbase_device *kbdev)
 
 		if (set_acpm_tj_power_status(TZ_GPU, false))
 			dev_err(kbdev->dev, "Failed to set Tj power off status\n");
+
+#ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
+		if (1) {
+#else
 		if (pc->pm.use_autosuspend) {
+#endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
 			pm_runtime_mark_last_busy(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
 			pm_runtime_put_autosuspend(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
 		} else {
@@ -377,7 +388,6 @@ static void gpu_pm_power_off_top_nolock(struct kbase_device *kbdev)
 		gpu_dvfs_event_power_off(kbdev);
 		kbase_pm_metrics_stop(kbdev);
 #endif
-
 	}
 }
 
@@ -493,6 +503,13 @@ static void gpu_pm_callback_power_suspend(struct kbase_device *kbdev)
  * We enable autosuspend for the TOP domain so that after the autosuspend delay, the core Mali
  * driver knows to disable the collection of GPU utilization data used for DVFS purposes.
  *
+ * For GPU Sleep mode, setup autosuspend delay for mali device. The timer is triggered from
+ * power_runtime_gpu_idle_callback. As the timer expires power_off_callback is triggered.
+ * This autosuspend delay is set to CORES_SUSPEND_HYSTERISIS_TIME_MS, as only CORES domain is
+ * powered-off as soon as power_off_callback is called.
+ * TOP domain will be powered-off after additionally TOP_SUSPEND_HYSTERISIS_TIME_MS timer expires,
+ * which is triggered from the power_off_callback.
+ *
  * Return: Returns 0 on success, or an error code on failure.
  */
 static int gpu_pm_callback_power_runtime_init(struct kbase_device *kbdev)
@@ -501,8 +518,21 @@ static int gpu_pm_callback_power_runtime_init(struct kbase_device *kbdev)
 
 	dev_dbg(kbdev->dev, "%s\n", __func__);
 
+#ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
+	pm_runtime_set_autosuspend_delay(kbdev->dev, CORES_SUSPEND_HYSTERISIS_TIME_MS);
+	pm_runtime_use_autosuspend(kbdev->dev);
+	pm_runtime_set_active(kbdev->dev);
+	pm_runtime_enable(kbdev->dev);
+	pm_runtime_set_autosuspend_delay(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP],
+			TOP_SUSPEND_HYSTERISIS_TIME_MS);
+	pm_runtime_use_autosuspend(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
+#endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
 	if (!pm_runtime_enabled(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]) ||
-		!pm_runtime_enabled(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES])) {
+		!pm_runtime_enabled(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES])
+#ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
+		|| !pm_runtime_enabled(kbdev->dev)
+#endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
+			) {
 		dev_warn(kbdev->dev, "pm_runtime not enabled\n");
 		return -ENOSYS;
 	}
@@ -517,7 +547,7 @@ static int gpu_pm_callback_power_runtime_init(struct kbase_device *kbdev)
 }
 
 /**
- * kbase_device_runtime_term() - Initialize runtime power management.
+ * gpu_pm_callback_power_runtime_term() - Terminate runtime power management.
  *
  * @kbdev: The &struct kbase_device for the GPU.
  *
@@ -533,10 +563,50 @@ static void gpu_pm_callback_power_runtime_term(struct kbase_device *kbdev)
 
 	pm_runtime_disable(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES]);
 	pm_runtime_disable(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
+#ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
+	pm_runtime_disable(kbdev->dev);
+#endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
 }
 
-#endif /* IS_ENABLED(KBASE_PM_RUNTIME) */
+#ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
+/**
+ * gpu_pm_callback_power_runtime_idle() - Callback when Runtime PM is idle.
+ *
+ * @kbdev: The &struct kbase_device for the GPU.
+ *
+ * This callback is made via the core Mali driver at the point where runtime power management is
+ * idle.
+ */
+static void gpu_pm_callback_power_runtime_idle(struct kbase_device *kbdev)
+{
+	lockdep_assert_held(&kbdev->pm.lock);
 
+	pm_runtime_mark_last_busy(kbdev->dev);
+	pm_runtime_put_autosuspend(kbdev->dev);
+	kbdev->pm.runtime_active = false;
+}
+
+/**
+ * gpu_pm_callback_power_runtime_active() - Callback when Runtime PM is active.
+ *
+ * @kbdev: The &struct kbase_device for the GPU.
+ *
+ * This callback is made via the core Mali driver at the point where runtime power management is
+ * active.
+ */
+static void gpu_pm_callback_power_runtime_active(struct kbase_device *kbdev)
+{
+	lockdep_assert_held(&kbdev->pm.lock);
+
+	if (pm_runtime_status_suspended(kbdev->dev))
+		pm_runtime_get_sync(kbdev->dev);
+	else
+		pm_runtime_get(kbdev->dev);
+
+	kbdev->pm.runtime_active = true;
+}
+#endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
+#endif /* IS_ENABLED(KBASE_PM_RUNTIME) */
 
 #ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
 /**
@@ -693,6 +763,10 @@ struct kbase_pm_callback_conf pm_callbacks = {
 	.power_on_sc_rails_callback = gpu_pm_callback_power_sc_rails_on,
 	.power_off_sc_rails_callback = gpu_pm_callback_power_sc_rails_off,
 #endif /* CONFIG_MALI_HOST_CONTROLS_SC_RAILS */
+#ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
+	.power_runtime_gpu_idle_callback = gpu_pm_callback_power_runtime_idle,
+	.power_runtime_gpu_active_callback = gpu_pm_callback_power_runtime_active,
+#endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
 };
 
 /**
@@ -809,7 +883,7 @@ int gpu_pm_init(struct kbase_device *kbdev)
 		dev_set_drvdata(pc->pm.domain_devs[i], kbdev);
 
 		pc->pm.domain_links[i] = device_link_add(kbdev->dev,
-			pc->pm.domain_devs[i], DL_FLAG_STATELESS | DL_FLAG_PM_RUNTIME);
+			pc->pm.domain_devs[i], DL_FLAG_STATELESS);
 
 		if (!pc->pm.domain_links[i]) {
 			dev_err(kbdev->dev, "failed to link pm domain device");
