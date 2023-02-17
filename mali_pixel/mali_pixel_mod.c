@@ -10,6 +10,7 @@ MODULE_VERSION("1.0");
 MODULE_SOFTDEP("pre: slc_pmon");
 MODULE_SOFTDEP("pre: slc_dummy");
 MODULE_SOFTDEP("pre: slc_acpm");
+MODULE_IMPORT_NS(DMA_BUF);
 
 static int __init mali_pixel_init(void)
 {

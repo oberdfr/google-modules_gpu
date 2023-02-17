@@ -718,7 +718,7 @@ struct kbase_process {
  * @regulators:            Pointer to the structs corresponding to the
  *                         regulators referenced by the GPU device node.
  * @nr_regulators:         Number of regulators set in the regulators array.
- * @opp_table:             Pointer to the device OPP structure maintaining the
+ * @opp_token:             Token linked to the device OPP structure maintaining the
  *                         link to OPPs attached to a device. This is obtained
  *                         after setting regulator names for the device.
  * @devname:               string containing the name used for GPU device instance,
@@ -1032,9 +1032,7 @@ struct kbase_device {
 #if IS_ENABLED(CONFIG_REGULATOR)
 	struct regulator *regulators[BASE_MAX_NR_CLOCKS_REGULATORS];
 	unsigned int nr_regulators;
-#if (KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE)
-	struct opp_table *opp_table;
-#endif /* (KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE */
+	int opp_token;
 #endif /* CONFIG_REGULATOR */
 	char devname[DEVNAME_SIZE];
 	u32  id;

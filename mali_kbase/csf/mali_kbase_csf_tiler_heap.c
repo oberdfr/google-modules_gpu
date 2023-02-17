@@ -1028,7 +1028,7 @@ void kbase_csf_tiler_heap_register_shrinker(struct kbase_device *kbdev)
 	reclaim->seeks = HEAP_SHRINKER_SEEKS;
 	reclaim->batch = HEAP_SHRINKER_BATCH;
 
-	register_shrinker(reclaim);
+	register_shrinker(reclaim, "mali-csf-tiler");
 }
 
 void kbase_csf_tiler_heap_unregister_shrinker(struct kbase_device *kbdev)

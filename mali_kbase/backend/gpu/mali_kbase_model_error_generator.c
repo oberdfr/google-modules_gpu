@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2014-2015, 2018-2022 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2014-2015, 2018-2023 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -29,6 +29,11 @@
 #define MAX_MMU_TABLE_LEVEL 4
 /* worst case scenario is <1 MMU fault + 1 job fault + 2 GPU faults> */
 #define MAX_CONCURRENT_FAULTS 3
+
+/** Kernel 6.1.0 has dropped prandom_u32(), use get_random_u32() */
+#if (KERNEL_VERSION(6, 1, 0) <= LINUX_VERSION_CODE)
+#define prandom_u32 get_random_u32
+#endif
 
 static struct kbase_error_atom *error_track_list;
 
