@@ -1052,6 +1052,7 @@ static int kbase_pm_mcu_update_state(struct kbase_device *kbdev)
 			dev_dbg(kbdev->dev, "MCU state transition: %s to %s\n",
 				kbase_mcu_state_to_string(prev_state),
 				kbase_mcu_state_to_string(backend->mcu_state));
+			trace_mali_pm_mcu_state(prev_state, backend->mcu_state);
 		}
 
 	} while (backend->mcu_state != prev_state);
@@ -1534,6 +1535,7 @@ static int kbase_pm_l2_update_state(struct kbase_device *kbdev)
 				kbase_l2_core_state_to_string(prev_state),
 				kbase_l2_core_state_to_string(
 					backend->l2_state));
+			trace_mali_pm_l2_state(prev_state, backend->l2_state);
 		}
 
 	} while (backend->l2_state != prev_state);
