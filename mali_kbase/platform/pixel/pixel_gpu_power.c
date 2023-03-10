@@ -32,6 +32,8 @@
 #include "pixel_gpu_trace.h"
 #include <trace/events/power.h>
 
+#include <soc/google/gs_tmu_v3.h>
+
 /*
  * GPU_PM_DOMAIN_NAMES - names for GPU power domains.
  *
@@ -269,6 +271,8 @@ static int gpu_pm_power_on_top_nolock(struct kbase_device *kbdev)
 	ret = (pc->pm.state == GPU_POWER_LEVEL_OFF);
 
 	gpu_dvfs_enable_updates(kbdev);
+	if (set_acpm_tj_power_status(TZ_GPU, true))
+		dev_err(kbdev->dev, "Failed to set Tj power on status\n");
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 	kbase_pm_metrics_start(kbdev);
 	gpu_dvfs_event_power_on(kbdev);
@@ -349,6 +353,8 @@ static void gpu_pm_power_off_top_nolock(struct kbase_device *kbdev)
 
 		gpu_dvfs_disable_updates(kbdev);
 
+		if (set_acpm_tj_power_status(TZ_GPU, false))
+			dev_err(kbdev->dev, "Failed to set Tj power off status\n");
 		if (pc->pm.use_autosuspend) {
 			pm_runtime_mark_last_busy(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
 			pm_runtime_put_autosuspend(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
