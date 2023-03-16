@@ -323,6 +323,7 @@ struct pixel_context {
 #endif /* CONFIG_MALI_MIDGARD_DVFS */
 #if IS_ENABLED(CONFIG_GOOGLE_BCL)
 		struct bcl_device *bcl_dev;
+		struct notifier_block qos_nb;
 #endif
 		struct pixel_rail_state_log *rail_state_log;
 #ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
