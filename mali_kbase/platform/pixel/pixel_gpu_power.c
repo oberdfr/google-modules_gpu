@@ -257,7 +257,6 @@ static int gpu_pm_power_on_top_nolock(struct kbase_device *kbdev)
 
 	pm_runtime_get_sync(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
 	pm_runtime_get_sync(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES]);
-	pm_runtime_get_sync(kbdev->dev);
 	/*
 	 * We determine whether GPU state was lost by detecting whether the GPU state reached
 	 * GPU_POWER_LEVEL_OFF before we entered this function. The GPU state is set to be
@@ -341,7 +340,6 @@ static void gpu_pm_power_off_top_nolock(struct kbase_device *kbdev)
 #endif
 
 	if (pc->pm.state == GPU_POWER_LEVEL_STACKS) {
-		pm_runtime_put_sync(kbdev->dev);
 		pm_runtime_put_sync(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES]);
 		pc->pm.state = GPU_POWER_LEVEL_GLOBAL;
 	}
@@ -492,11 +490,9 @@ static int gpu_pm_callback_power_runtime_init(struct kbase_device *kbdev)
 	struct pixel_context *pc = kbdev->platform_context;
 
 	dev_dbg(kbdev->dev, "%s\n", __func__);
-	pm_runtime_enable(kbdev->dev);
 
 	if (!pm_runtime_enabled(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]) ||
-		!pm_runtime_enabled(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES]) ||
-		!pm_runtime_enabled(kbdev->dev)) {
+		!pm_runtime_enabled(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES])) {
 		dev_warn(kbdev->dev, "pm_runtime not enabled\n");
 		return -ENOSYS;
 	}
@@ -527,7 +523,6 @@ static void gpu_pm_callback_power_runtime_term(struct kbase_device *kbdev)
 
 	pm_runtime_disable(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES]);
 	pm_runtime_disable(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
-	pm_runtime_disable(kbdev->dev);
 }
 
 #endif /* IS_ENABLED(KBASE_PM_RUNTIME) */
