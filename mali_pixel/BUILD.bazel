@@ -17,6 +17,7 @@ kernel_module(
     ],
     kernel_build = "//private/google-modules/soc/gs:gs_kernel_build",
     visibility = [
+        "//private/google-modules/gpu/mali_kbase:__pkg__",
         "//private/google-modules/soc/gs:__pkg__",
     ],
     deps = [

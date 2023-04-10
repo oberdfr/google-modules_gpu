@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2011-2021 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2011-2022 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -641,6 +641,8 @@ int kbasep_js_kctx_init(struct kbase_context *const kctx)
 
 	KBASE_DEBUG_ASSERT(kctx != NULL);
 
+	kbase_ctx_sched_init_ctx(kctx);
+
 	for (i = 0; i < BASE_JM_MAX_NR_SLOTS; ++i)
 		INIT_LIST_HEAD(&kctx->jctx.sched_info.ctx.ctx_list_entry[i]);
 
@@ -717,6 +719,8 @@ void kbasep_js_kctx_term(struct kbase_context *kctx)
 		kbase_backend_ctx_count_changed(kbdev);
 		mutex_unlock(&kbdev->js_data.runpool_mutex);
 	}
+
+	kbase_ctx_sched_remove_ctx(kctx);
 }
 
 /*
@@ -1772,7 +1776,7 @@ static kbasep_js_release_result kbasep_js_run_jobs_after_ctx_and_atom_release(
  * For those tasks, just call kbasep_js_runpool_release_ctx() instead
  *
  * Has following requirements
- * - Context is scheduled in, and kctx->as_nr matches kctx_as_nr (?)
+ * - Context is scheduled in, and kctx->as_nr matches kctx_as_nr
  * - Context has a non-zero refcount
  * - Caller holds js_kctx_info->ctx.jsctx_mutex
  * - Caller holds js_devdata->runpool_mutex
@@ -1809,7 +1813,7 @@ static kbasep_js_release_result kbasep_js_runpool_release_ctx_internal(
 	 *
 	 * Assert about out calling contract
 	 */
-	mutex_lock(&kbdev->pm.lock);
+	rt_mutex_lock(&kbdev->pm.lock);
 	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
 
 	KBASE_DEBUG_ASSERT(atomic_read(&kctx->refcount) > 0);
@@ -1911,7 +1915,7 @@ static kbasep_js_release_result kbasep_js_runpool_release_ctx_internal(
 
 		kbase_backend_release_ctx_noirq(kbdev, kctx);
 
-		mutex_unlock(&kbdev->pm.lock);
+		rt_mutex_unlock(&kbdev->pm.lock);
 
 		/* Note: Don't reuse kctx_as_nr now */
 
@@ -1934,7 +1938,7 @@ static kbasep_js_release_result kbasep_js_runpool_release_ctx_internal(
 				katom_retained_state, runpool_ctx_attr_change);
 
 		spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
-		mutex_unlock(&kbdev->pm.lock);
+		rt_mutex_unlock(&kbdev->pm.lock);
 	}
 
 	return release_result;
@@ -3276,6 +3280,7 @@ bool kbase_js_complete_atom_wq(struct kbase_context *kctx,
 	int atom_slot;
 	bool context_idle = false;
 	int prio = katom->sched_priority;
+	bool slot_became_unblocked;
 
 	kbdev = kctx->kbdev;
 	atom_slot = katom->slot_nr;
@@ -3298,44 +3303,37 @@ bool kbase_js_complete_atom_wq(struct kbase_context *kctx,
 	mutex_lock(&js_devdata->runpool_mutex);
 	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
 
-	if (katom->atom_flags & KBASE_KATOM_FLAG_JSCTX_IN_TREE) {
-		bool slot_became_unblocked;
-
-		dev_dbg(kbdev->dev, "Atom %pK is in runnable_tree\n",
-			(void *)katom);
-
-		slot_became_unblocked =
-			kbase_jsctx_slot_atom_pulled_dec(kctx, katom);
-		context_idle = !kbase_jsctx_atoms_pulled(kctx);
-
-		if (!kbase_jsctx_atoms_pulled(kctx) && !kctx->slots_pullable) {
-			WARN_ON(!kbase_ctx_flag(kctx, KCTX_RUNNABLE_REF));
-			kbase_ctx_flag_clear(kctx, KCTX_RUNNABLE_REF);
-			atomic_dec(&kbdev->js_data.nr_contexts_runnable);
-			timer_sync = true;
-		}
-
-		/* If this slot has been blocked due to soft-stopped atoms, and
-		 * all atoms have now been processed at this priority level and
-		 * higher, then unblock the slot
-		 */
-		if (slot_became_unblocked) {
-			dev_dbg(kbdev->dev,
-				"kctx %pK is no longer blocked from submitting on slot %d at priority %d or higher\n",
-				(void *)kctx, atom_slot, prio);
-
-			if (kbase_js_ctx_pullable(kctx, atom_slot, true))
-				timer_sync |=
-					kbase_js_ctx_list_add_pullable_nolock(
-						kbdev, kctx, atom_slot);
-		}
-	}
 	WARN_ON(!(katom->atom_flags & KBASE_KATOM_FLAG_JSCTX_IN_TREE));
+
+	dev_dbg(kbdev->dev, "Atom %pK is in runnable_tree\n", (void *)katom);
+
+	slot_became_unblocked = kbase_jsctx_slot_atom_pulled_dec(kctx, katom);
+	context_idle = !kbase_jsctx_atoms_pulled(kctx);
+
+	if (!kbase_jsctx_atoms_pulled(kctx) && !kctx->slots_pullable) {
+		WARN_ON(!kbase_ctx_flag(kctx, KCTX_RUNNABLE_REF));
+		kbase_ctx_flag_clear(kctx, KCTX_RUNNABLE_REF);
+		atomic_dec(&kbdev->js_data.nr_contexts_runnable);
+		timer_sync = true;
+	}
+
+	/* If this slot has been blocked due to soft-stopped atoms, and
+	 * all atoms have now been processed at this priority level and
+	 * higher, then unblock the slot
+	 */
+	if (slot_became_unblocked) {
+		dev_dbg(kbdev->dev,
+			"kctx %pK is no longer blocked from submitting on slot %d at priority %d or higher\n",
+			(void *)kctx, atom_slot, prio);
+
+		if (kbase_js_ctx_pullable(kctx, atom_slot, true))
+			timer_sync |=
+				kbase_js_ctx_list_add_pullable_nolock(kbdev, kctx, atom_slot);
+	}
 
 	if (!kbase_jsctx_slot_atoms_pulled(kctx, atom_slot) &&
 	    jsctx_rb_none_to_pull(kctx, atom_slot)) {
-		if (!list_empty(
-			&kctx->jctx.sched_info.ctx.ctx_list_entry[atom_slot]))
+		if (!list_empty(&kctx->jctx.sched_info.ctx.ctx_list_entry[atom_slot]))
 			timer_sync |= kbase_js_ctx_list_remove_nolock(
 					kctx->kbdev, kctx, atom_slot);
 	}
@@ -4088,13 +4086,15 @@ base_jd_prio kbase_js_priority_check(struct kbase_device *kbdev, base_jd_prio pr
 {
 	struct priority_control_manager_device *pcm_device = kbdev->pcm_dev;
 	int req_priority, out_priority;
-	base_jd_prio out_jd_priority = priority;
 
-	if (pcm_device)	{
-		req_priority = kbasep_js_atom_prio_to_sched_prio(priority);
-		out_priority = pcm_device->ops.pcm_scheduler_priority_check(pcm_device, current, req_priority);
-		out_jd_priority = kbasep_js_sched_prio_to_atom_prio(out_priority);
-	}
-	return out_jd_priority;
+	req_priority = kbasep_js_atom_prio_to_sched_prio(priority);
+	out_priority = req_priority;
+	/* Does not use pcm defined priority check if PCM not defined or if
+	 * kbasep_js_atom_prio_to_sched_prio returns an error
+	 * (KBASE_JS_ATOM_SCHED_PRIO_INVALID).
+	 */
+	if (pcm_device && (req_priority != KBASE_JS_ATOM_SCHED_PRIO_INVALID))
+		out_priority = pcm_device->ops.pcm_scheduler_priority_check(pcm_device, current,
+									    req_priority);
+	return kbasep_js_sched_prio_to_atom_prio(kbdev, out_priority);
 }
-

@@ -159,13 +159,13 @@ int kbase_pm_driver_suspend(struct kbase_device *kbdev)
 	 */
 	kbase_hwcnt_context_disable(kbdev->hwcnt_gpu_ctx);
 
-	mutex_lock(&kbdev->pm.lock);
+	rt_mutex_lock(&kbdev->pm.lock);
 	if (WARN_ON(kbase_pm_is_suspending(kbdev))) {
-		mutex_unlock(&kbdev->pm.lock);
+		rt_mutex_unlock(&kbdev->pm.lock);
 		return 0;
 	}
 	kbdev->pm.suspending = true;
-	mutex_unlock(&kbdev->pm.lock);
+	rt_mutex_unlock(&kbdev->pm.lock);
 
 #ifdef CONFIG_MALI_ARBITER_SUPPORT
 	if (kbdev->arb.arb_if) {
@@ -194,9 +194,9 @@ int kbase_pm_driver_suspend(struct kbase_device *kbdev)
 	kbasep_js_suspend(kbdev);
 #else
 	if (kbase_csf_scheduler_pm_suspend(kbdev)) {
-		mutex_lock(&kbdev->pm.lock);
+		rt_mutex_lock(&kbdev->pm.lock);
 		kbdev->pm.suspending = false;
-		mutex_unlock(&kbdev->pm.lock);
+		rt_mutex_unlock(&kbdev->pm.lock);
 		return -1;
 	}
 #endif
@@ -215,9 +215,9 @@ int kbase_pm_driver_suspend(struct kbase_device *kbdev)
 	 * kbase_pm_context_idle() call by locking the pm.lock below
 	 */
 	if (kbase_hwaccess_pm_suspend(kbdev)) {
-		mutex_lock(&kbdev->pm.lock);
+		rt_mutex_lock(&kbdev->pm.lock);
 		kbdev->pm.suspending = false;
-		mutex_unlock(&kbdev->pm.lock);
+		rt_mutex_unlock(&kbdev->pm.lock);
 		return -1;
 	}
 
@@ -462,11 +462,12 @@ static enum hrtimer_restart kbase_pm_apc_timer_callback(struct hrtimer *timer)
 
 int kbase_pm_apc_init(struct kbase_device *kbdev)
 {
-	kthread_init_worker(&kbdev->apc.worker);
-	kbdev->apc.thread = kbase_create_realtime_thread(kbdev,
+	int ret;
+
+	ret = kbase_create_realtime_thread(kbdev,
 		kthread_worker_fn, &kbdev->apc.worker, "mali_apc_thread");
-	if (IS_ERR(kbdev->apc.thread))
-		return PTR_ERR(kbdev->apc.thread);
+	if (ret)
+		return ret;
 
 	/*
 	 * We initialize power off and power on work on init as they will each
@@ -486,6 +487,5 @@ int kbase_pm_apc_init(struct kbase_device *kbdev)
 void kbase_pm_apc_term(struct kbase_device *kbdev)
 {
 	hrtimer_cancel(&kbdev->apc.timer);
-	kthread_flush_worker(&kbdev->apc.worker);
-	kthread_stop(kbdev->apc.thread);
+	kbase_destroy_kworker_stack(&kbdev->apc.worker);
 }

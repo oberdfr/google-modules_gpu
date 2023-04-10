@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  *
- * (C) COPYRIGHT 2020-2021 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2020-2022 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -82,6 +82,18 @@ void kbase_ktrace_debugfs_init(struct kbase_device *kbdev);
  */
 #if KBASE_KTRACE_TARGET_RBUF
 /**
+ * kbasep_ktrace_initialized - Check whether kbase ktrace is initialized
+ *
+ * @ktrace: ktrace of kbase device.
+ *
+ * Return: true if ktrace has been initialized.
+ */
+static inline bool kbasep_ktrace_initialized(struct kbase_ktrace *ktrace)
+{
+	return ktrace->rbuf != NULL;
+}
+
+/**
  * kbasep_ktrace_add - internal function to add trace to the ringbuffer.
  * @kbdev:    kbase device
  * @code:     ktrace code
@@ -110,6 +122,18 @@ void kbasep_ktrace_clear(struct kbase_device *kbdev);
  * PRIVATE: do not use directly. Use KBASE_KTRACE_DUMP() instead.
  */
 void kbasep_ktrace_dump(struct kbase_device *kbdev);
+
+/**
+ * kbasep_ktrace_copy - copy ktrace buffer.
+ * Elements in the buffer will be ordered from earliest to latest.
+ * Precondition: ktrace lock must be held.
+ *
+ * @kbdev: kbase device
+ * @msgs: a region of memory of size data_size that the ktrace buffer will be copied to
+ * @num_msgs: the size of data. 
+ * Return: The number of elements copied.
+ */
+ u32 kbasep_ktrace_copy(struct kbase_device* kbdev, struct kbase_ktrace_msg* msgs, u32 num_msgs);
 
 #define KBASE_KTRACE_RBUF_ADD(kbdev, code, kctx, info_val)     \
 	kbasep_ktrace_add(kbdev, KBASE_KTRACE_CODE(code), kctx, 0, \
