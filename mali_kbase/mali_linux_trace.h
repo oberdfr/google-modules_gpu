@@ -60,6 +60,46 @@ TRACE_EVENT(mali_job_slots_event,
 );
 
 /**
+ * mali_pm_mcu_state - Reports changes to mcu state machine
+ * @from: initial state
+ * @to: final state
+ */
+TRACE_EVENT(mali_pm_mcu_state,
+	TP_PROTO(u32 from, u32 to),
+	TP_ARGS(from, to),
+	TP_STRUCT__entry(
+		__field(u32, from)
+		__field(u32, to)
+	),
+	TP_fast_assign(
+		__entry->from = from;
+		__entry->to = to;
+	),
+	TP_printk("from=%u to=%u",
+		__entry->from, __entry->to)
+);
+
+/**
+ * mali_pm_l2_state - Reports changes to l2 state machine
+ * @from: initial state
+ * @to: final state
+ */
+TRACE_EVENT(mali_pm_l2_state,
+	TP_PROTO(u32 from, u32 to),
+	TP_ARGS(from, to),
+	TP_STRUCT__entry(
+		__field(u32, from)
+		__field(u32, to)
+	),
+	TP_fast_assign(
+		__entry->from = from;
+		__entry->to = to;
+	),
+	TP_printk("from=%u to=%u",
+		__entry->from, __entry->to)
+);
+
+/**
  * mali_pm_status - Reports change of power management status.
  * @gpu_id:   Kbase device id
  * @event_id: Core type (shader, tiler, L2 cache)

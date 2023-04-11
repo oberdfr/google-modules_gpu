@@ -31,6 +31,7 @@
 #include "mali_kbase_config_platform.h"
 #include "pixel_gpu_control.h"
 #include "pixel_gpu_sscd.h"
+#include "pixel_gpu_slc.h"
 
 #define CREATE_TRACE_POINTS
 #include "pixel_gpu_trace.h"
@@ -173,6 +174,57 @@ static int gpu_fw_cfg_init(struct kbase_device *kbdev) {
 }
 
 /**
+ * gpu_pixel_kctx_init() - Called when a kernel context is created
+ *
+ * @kctx: The &struct kbase_context that is being initialized
+ *
+ * This function is called when the GPU driver is initializing a new kernel context.
+ *
+ * Return: Returns 0 on success, or an error code on failure.
+ */
+static int gpu_pixel_kctx_init(struct kbase_context *kctx)
+{
+	struct kbase_device* kbdev = kctx->kbdev;
+	int err;
+
+	kctx->platform_data = kzalloc(sizeof(struct pixel_platform_data), GFP_KERNEL);
+	if (kctx->platform_data == NULL) {
+		dev_err(kbdev->dev, "pixel: failed to alloc platform_data for kctx");
+		err = -ENOMEM;
+		goto done;
+	}
+
+	err = gpu_dvfs_kctx_init(kctx);
+	if (err) {
+		dev_err(kbdev->dev, "pixel: DVFS kctx init failed\n");
+		goto done;
+	}
+
+	err = gpu_slc_kctx_init(kctx);
+	if (err) {
+		dev_err(kbdev->dev, "pixel: SLC kctx init failed\n");
+		goto done;
+	}
+
+done:
+	return err;
+}
+
+/**
+ * gpu_pixel_kctx_term() - Called when a kernel context is terminated
+ *
+ * @kctx: The &struct kbase_context that is being terminated
+ */
+static void gpu_pixel_kctx_term(struct kbase_context *kctx)
+{
+	gpu_slc_kctx_term(kctx);
+	gpu_dvfs_kctx_term(kctx);
+
+	kfree(kctx->platform_data);
+	kctx->platform_data = NULL;
+}
+
+/**
  * gpu_s2mpu_init - Initialize S2MPU for G3D
  *
  * @kbdev: The &struct kbase_device for the GPU.
@@ -183,12 +235,12 @@ static int gpu_s2mpu_init(struct kbase_device *kbdev)
 {
 	int ret = 0;
 
-	if (IS_ENABLED(CONFIG_PKVM_S2MPU)) {
-		ret = pkvm_s2mpu_of_link(kbdev->dev);
+	if (IS_ENABLED(CONFIG_PKVM_S2MPU_V9)) {
+		ret = pkvm_s2mpu_of_link_v9(kbdev->dev);
 		if (ret == -EAGAIN)
 			ret = -EPROBE_DEFER;
 		else if (ret)
-			dev_err(kbdev->dev, "can't link with s2mpu, error %d\n", ret);
+			dev_err(kbdev->dev, "can't link with s2mpu v9, error %d\n", ret);
 	}
 
 	return ret;
@@ -202,6 +254,7 @@ static const struct kbase_device_init dev_init[] = {
 #endif
 	{ gpu_sysfs_init, gpu_sysfs_term, "sysfs init failed" },
 	{ gpu_sscd_init, gpu_sscd_term, "SSCD init failed" },
+	{ gpu_slc_init, gpu_slc_term, "SLC init failed" },
 };
 
 static void gpu_pixel_term_partial(struct kbase_device *kbdev,
@@ -275,8 +328,8 @@ struct kbase_platform_funcs_conf platform_funcs = {
 	.platform_init_func = &gpu_pixel_init,
 	.platform_term_func = &gpu_pixel_term,
 #ifdef CONFIG_MALI_MIDGARD_DVFS
-	.platform_handler_context_init_func = &gpu_dvfs_kctx_init,
-	.platform_handler_context_term_func = &gpu_dvfs_kctx_term,
+	.platform_handler_context_init_func = &gpu_pixel_kctx_init,
+	.platform_handler_context_term_func = &gpu_pixel_kctx_term,
 	.platform_handler_work_begin_func = &gpu_dvfs_metrics_work_begin,
 	.platform_handler_work_end_func = &gpu_dvfs_metrics_work_end,
 #endif /* CONFIG_MALI_MIDGARD_DVFS */
