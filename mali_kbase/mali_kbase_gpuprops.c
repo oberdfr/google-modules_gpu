@@ -184,8 +184,11 @@ static int kbase_gpuprops_get_props(struct base_gpu_props * const gpu_props,
 	struct kbase_gpuprops_regdump regdump;
 	int i;
 	int err;
+	u64 gpu_features_mask = 0;
 
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
+	KBASE_DEBUG_ASSERT(kbdev->dev != NULL);
+	KBASE_DEBUG_ASSERT(kbdev->dev->of_node != NULL);
 	KBASE_DEBUG_ASSERT(gpu_props != NULL);
 
 	/* Dump relevant registers */
@@ -229,6 +232,10 @@ static int kbase_gpuprops_get_props(struct base_gpu_props * const gpu_props,
 	gpu_props->raw_props.gpu_features =
 		((u64) regdump.gpu_features_hi << 32) +
 		regdump.gpu_features_lo;
+
+	err = of_property_read_u64(kbdev->dev->of_node, "gpu_features_mask", &gpu_features_mask);
+	if (!err)
+		gpu_props->raw_props.gpu_features &= ~gpu_features_mask;
 
 	return 0;
 }
