@@ -4190,8 +4190,6 @@ static void scheduler_apply(struct kbase_device *kbdev)
 	struct kbase_csf_scheduler *scheduler = &kbdev->csf.scheduler;
 	const u32 total_csg_slots = kbdev->csf.global_iface.group_num;
 	const u32 available_csg_slots = scheduler->num_csg_slots_for_tick;
-	u32 suspend_cnt = 0;
-	u32 remain_cnt = 0;
 	u32 resident_cnt = 0;
 	struct kbase_queue_group *group;
 	u32 i;
@@ -4204,11 +4202,8 @@ static void scheduler_apply(struct kbase_device *kbdev)
 		group = scheduler->csg_slots[i].resident_group;
 		if (group) {
 			resident_cnt++;
-			if (group->prepared_seq_num >= available_csg_slots) {
+			if (group->prepared_seq_num >= available_csg_slots)
 				suspend_queue_group(group);
-				suspend_cnt++;
-			} else
-				remain_cnt++;
 		}
 	}
 
