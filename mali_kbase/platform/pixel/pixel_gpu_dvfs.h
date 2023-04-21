@@ -336,6 +336,16 @@ enum gpu_dvfs_level_lock_type {
 	 */
 	GPU_DVFS_LEVEL_LOCK_THERMAL,
 #endif /* CONFIG_MALI_PIXEL_GPU_THERMAL */
+#if IS_ENABLED(CONFIG_GOOGLE_BCL)
+	/**
+	 * &GPU_DVFS_LEVEL_LOCK_BCL: Battery current limitation mitigation lock
+	 *
+	 * This lock is set when the system is in a current limited situation where the GPU frequency
+         * needs to be controlled to stay in control of the maximum amount of current the battery
+         * can deliver.
+	 */
+	GPU_DVFS_LEVEL_LOCK_BCL,
+#endif /* CONFIG_GOOGLE_BCL */
 	/* Insert new level locks here */
 	GPU_DVFS_LEVEL_LOCK_COUNT,
 };

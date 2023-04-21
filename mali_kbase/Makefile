@@ -44,6 +44,7 @@ CONFIG_MALI_PIXEL_GPU_BTS ?= y
 CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING ?= y
 CONFIG_MALI_PIXEL_GPU_THERMAL ?= y
 CONFIG_MALI_PIXEL_GPU_PM ?= y
+CONFIG_MALI_PIXEL_GPU_SLC ?= y
 
 #
 # Default configuration values
@@ -221,7 +222,8 @@ CONFIGS += \
     CONFIG_MALI_PIXEL_GPU_BTS \
     CONFIG_MALI_PIXEL_GPU_THERMAL \
     CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING \
-    CONFIG_MALI_PIXEL_GPU_PM
+    CONFIG_MALI_PIXEL_GPU_PM \
+    CONFIG_MALI_PIXEL_GPU_SLC
 
 #
 # MAKE_ARGS to pass the custom CONFIGs on out-of-tree build
@@ -254,6 +256,7 @@ include $(KDIR)/../private/google-modules/soc/gs/Makefile.include
 #
 # KBUILD_EXTRA_SYMBOLS to prevent warnings about unknown functions
 #
+EXTRA_SYMBOLS += $(OUT_DIR)/../private/google-modules/gpu/mali_pixel/Module.symvers
 
 # The following were added to align with W=1 in scripts/Makefile.extrawarn
 # from the Linux source tree

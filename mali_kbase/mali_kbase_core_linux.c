@@ -80,6 +80,9 @@
 #include "mali_kbase_pbha_debugfs.h"
 #endif
 
+/* Pixel includes */
+#include "platform/pixel/pixel_gpu_slc.h"
+
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/poll.h>
@@ -820,11 +823,20 @@ static int kbase_api_set_flags(struct kbase_file *kfile,
 	return err;
 }
 
+#if !MALI_USE_CSF
 static int kbase_api_apc_request(struct kbase_file *kfile,
 		struct kbase_ioctl_apc_request *apc)
 {
 	kbase_pm_apc_request(kfile->kbdev, apc->dur_usec);
 	return 0;
+}
+#endif
+
+static int kbase_api_buffer_liveness_update(struct kbase_context *kctx,
+		struct kbase_ioctl_buffer_liveness_update *update)
+{
+	/* Defer handling to platform */
+	return gpu_pixel_handle_buffer_liveness_update_ioctl(kctx, update);
 }
 
 #if !MALI_USE_CSF
@@ -1821,12 +1833,14 @@ static long kbase_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				kfile);
 		break;
 
+#if !MALI_USE_CSF
 	case KBASE_IOCTL_APC_REQUEST:
 		KBASE_HANDLE_IOCTL_IN(KBASE_IOCTL_APC_REQUEST,
 				kbase_api_apc_request,
 				struct kbase_ioctl_apc_request,
 				kfile);
 		break;
+#endif
 
 	case KBASE_IOCTL_KINSTR_PRFCNT_ENUM_INFO:
 		KBASE_HANDLE_IOCTL_INOUT(
@@ -2199,6 +2213,12 @@ static long kbase_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		KBASE_HANDLE_IOCTL_IN(KBASE_IOCTL_SET_LIMITED_CORE_COUNT,
 				kbasep_ioctl_set_limited_core_count,
 				struct kbase_ioctl_set_limited_core_count,
+				kctx);
+		break;
+	case KBASE_IOCTL_BUFFER_LIVENESS_UPDATE:
+		KBASE_HANDLE_IOCTL_IN(KBASE_IOCTL_BUFFER_LIVENESS_UPDATE,
+				kbase_api_buffer_liveness_update,
+				struct kbase_ioctl_buffer_liveness_update,
 				kctx);
 		break;
 	}
