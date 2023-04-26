@@ -1284,7 +1284,7 @@ struct kbase_device {
 	bool dummy_job_wa_loaded;
 
 #ifdef CONFIG_MALI_ARBITER_SUPPORT
-		struct kbase_arbiter_device arb;
+	struct kbase_arbiter_device arb;
 #endif
 	/* Priority Control Manager device */
 	struct priority_control_manager_device *pcm_dev;
@@ -1292,6 +1292,10 @@ struct kbase_device {
 	struct notifier_block oom_notifier_block;
 
 	struct kobject *proc_sysfs_node;
+
+#ifdef CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL
+	struct device *s2mpu_dev;
+#endif /* CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL */
 };
 
 /**
