@@ -16,8 +16,6 @@
 #include <linux/soc/samsung/exynos-smc.h>
 #endif /* CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING */
 
-#include <soc/google/pkvm-s2mpu.h>
-
 /* Mali core includes */
 #include <mali_kbase.h>
 #ifdef CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING
@@ -224,6 +222,7 @@ static void gpu_pixel_kctx_term(struct kbase_context *kctx)
 	kctx->platform_data = NULL;
 }
 
+#ifdef CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL
 /**
  * gpu_s2mpu_init - Initialize S2MPU for G3D
  *
@@ -234,20 +233,40 @@ static void gpu_pixel_kctx_term(struct kbase_context *kctx)
 static int gpu_s2mpu_init(struct kbase_device *kbdev)
 {
 	int ret = 0;
+	struct device_node *np;
+	struct platform_device *pdev;
 
-	if (IS_ENABLED(CONFIG_PKVM_S2MPU_V9)) {
-		ret = pkvm_s2mpu_of_link_v9(kbdev->dev);
-		if (ret == -EAGAIN)
-			ret = -EPROBE_DEFER;
-		else if (ret)
-			dev_err(kbdev->dev, "can't link with s2mpu v9, error %d\n", ret);
+	/*
+	 * We expect "s2mpus" entry in device tree to point to gpu s2mpu device
+	 */
+	np = of_parse_phandle(kbdev->dev->of_node, "s2mpus", 0);
+	if (!np) {
+		dev_err(kbdev->dev, "No 's2mpus' entry found in the device tree\n");
+		ret = -ENODEV;
+		goto done;
 	}
 
+	pdev = of_find_device_by_node(np);
+	of_node_put(np);
+	if (!pdev) {
+		dev_err(kbdev->dev, "No device specified in 's2mpus' device node\n");
+		ret = -ENODEV;
+		goto done;
+	}
+
+	kbdev->s2mpu_dev = &pdev->dev;
+	dev_info(kbdev->dev, "s2mpu device %s successfully configured\n",
+				dev_name(kbdev->s2mpu_dev));
+
+done:
 	return ret;
 }
+#endif /* CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL */
 
 static const struct kbase_device_init dev_init[] = {
+#ifdef CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL
 	{ gpu_s2mpu_init, NULL, "S2MPU init failed" },
+#endif /* CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL */
 	{ gpu_pm_init, gpu_pm_term, "PM init failed" },
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 	{ gpu_dvfs_init, gpu_dvfs_term, "DVFS init failed" },

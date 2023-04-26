@@ -34,6 +34,10 @@
 
 #include <soc/google/gs_tmu_v3.h>
 
+#if IS_ENABLED(CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL) && IS_ENABLED(CONFIG_MALI_HOST_CONTROLS_SC_RAILS)
+#error "s2mpu device runtime PM control is not expected to be enabled with host-side shader rail control"
+#endif
+
 /*
  * GPU_PM_DOMAIN_NAMES - names for GPU power domains.
  *
@@ -257,6 +261,9 @@ static int gpu_pm_power_on_top_nolock(struct kbase_device *kbdev)
 
 	pm_runtime_get_sync(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
 	pm_runtime_get_sync(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES]);
+#ifdef CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL
+	pm_runtime_get_sync(kbdev->s2mpu_dev);
+#endif /* CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL */
 	/*
 	 * We determine whether GPU state was lost by detecting whether the GPU state reached
 	 * GPU_POWER_LEVEL_OFF before we entered this function. The GPU state is set to be
@@ -340,6 +347,9 @@ static void gpu_pm_power_off_top_nolock(struct kbase_device *kbdev)
 #endif
 
 	if (pc->pm.state == GPU_POWER_LEVEL_STACKS) {
+#ifdef CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL
+		pm_runtime_put_sync(kbdev->s2mpu_dev);
+#endif /* CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL */
 		pm_runtime_put_sync(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES]);
 		pc->pm.state = GPU_POWER_LEVEL_GLOBAL;
 	}
