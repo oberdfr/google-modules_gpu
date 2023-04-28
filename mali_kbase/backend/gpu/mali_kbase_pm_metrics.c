@@ -100,11 +100,9 @@ static enum hrtimer_restart dvfs_callback(struct hrtimer *timer)
 int kbasep_pm_metrics_init(struct kbase_device *kbdev)
 {
 #if MALI_USE_CSF
-	struct kbase_ipa_control_perf_counter perf_counter;
+	struct kbase_ipa_control_perf_counter
+		perf_counters[IPA_NUM_PERF_COUNTERS];
 	int err;
-
-	/* One counter group */
-	const size_t NUM_PERF_COUNTERS = 1;
 
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 	kbdev->pm.backend.metrics.kbdev = kbdev;
@@ -113,19 +111,30 @@ int kbasep_pm_metrics_init(struct kbase_device *kbdev)
 	kbdev->pm.backend.metrics.values.time_idle = 0;
 	kbdev->pm.backend.metrics.values.time_in_protm = 0;
 
-	perf_counter.scaling_factor = GPU_ITER_ACTIVE_SCALING_FACTOR;
+	perf_counters[ITER_ACTIVE_IDX].scaling_factor =
+		GPU_ITER_ACTIVE_SCALING_FACTOR;
 
 	/* Normalize values by GPU frequency */
-	perf_counter.gpu_norm = true;
+	perf_counters[ITER_ACTIVE_IDX].gpu_norm = true;
 
 	/* We need the GPU_ITER_ACTIVE counter, which is in the CSHW group */
-	perf_counter.type = KBASE_IPA_CORE_TYPE_CSHW;
+	perf_counters[ITER_ACTIVE_IDX].type = KBASE_IPA_CORE_TYPE_CSHW;
 
 	/* We need the GPU_ITER_ACTIVE counter */
-	perf_counter.idx = GPU_ITER_ACTIVE_CNT_IDX;
+	perf_counters[ITER_ACTIVE_IDX].idx = IPA_GPU_ITER_ACTIVE_CNT_IDX;
+
+	// do same for MCU_ACTIVE
+	perf_counters[MCU_ACTIVE_IDX].scaling_factor =
+		GPU_ITER_ACTIVE_SCALING_FACTOR;
+
+	perf_counters[MCU_ACTIVE_IDX].gpu_norm = true;
+
+	perf_counters[MCU_ACTIVE_IDX].type = KBASE_IPA_CORE_TYPE_CSHW;
+
+	perf_counters[MCU_ACTIVE_IDX].idx = IPA_MCU_ACTIVE_CNT_IDX;
 
 	err = kbase_ipa_control_register(
-		kbdev, &perf_counter, NUM_PERF_COUNTERS,
+		kbdev, perf_counters, IPA_NUM_PERF_COUNTERS,
 		&kbdev->pm.backend.metrics.ipa_control_client);
 	if (err) {
 		dev_err(kbdev->dev,
@@ -202,7 +211,10 @@ KBASE_EXPORT_TEST_API(kbasep_pm_metrics_term);
 static void kbase_pm_get_dvfs_utilisation_calc(struct kbase_device *kbdev)
 {
 	int err;
-	u64 gpu_iter_active_counter;
+	struct pixel_context *pc = kbdev->platform_context;
+
+	u64 gpu_iter_active_counter, mcu_active_counter,
+		counters[IPA_NUM_PERF_COUNTERS];
 	u64 protected_time;
 	ktime_t now;
 
@@ -212,8 +224,10 @@ static void kbase_pm_get_dvfs_utilisation_calc(struct kbase_device *kbdev)
 	 * info.
 	 */
 	err = kbase_ipa_control_query(
-		kbdev, kbdev->pm.backend.metrics.ipa_control_client,
-		&gpu_iter_active_counter, 1, &protected_time);
+		kbdev, kbdev->pm.backend.metrics.ipa_control_client, counters,
+		IPA_NUM_PERF_COUNTERS, &protected_time);
+	gpu_iter_active_counter = counters[0];
+	mcu_active_counter = counters[1];
 
 	/* Read the timestamp after reading the GPU_ITER_ACTIVE counter value.
 	 * This ensures the time gap between the 2 reads is consistent for
@@ -267,6 +281,14 @@ static void kbase_pm_get_dvfs_utilisation_calc(struct kbase_device *kbdev)
 					(unsigned long long)gpu_iter_active_counter,
 					(unsigned long long)diff_ns);
 			}
+			if (mcu_active_counter > (diff_ns + MARGIN_NS)) {
+				dev_info(
+					kbdev->dev,
+					"MCU activity longer than time interval: %llu ns > %llu ns",
+					(unsigned long long)
+						gpu_iter_active_counter,
+					(unsigned long long)diff_ns);
+			}
 		}
 #endif
 		/* Calculate time difference in units of 256ns */
@@ -286,11 +308,19 @@ static void kbase_pm_get_dvfs_utilisation_calc(struct kbase_device *kbdev)
 		protected_time >>= KBASE_PM_TIME_SHIFT;
 		gpu_iter_active_counter >>= KBASE_PM_TIME_SHIFT;
 		gpu_iter_active_counter += protected_time;
+		mcu_active_counter >>= KBASE_PM_TIME_SHIFT;
+
+#if MALI_USE_CSF
+		mcu_active_counter += ((protected_time /
+					pc->dvfs.tunable.mcu_protm_scale_den) *
+				       pc->dvfs.tunable.mcu_protm_scale_num);
+#endif
 
 		/* Ensure the following equations don't go wrong if ns_time is
 		 * slightly larger than gpu_iter_active_counter somehow
 		 */
 		gpu_iter_active_counter = MIN(gpu_iter_active_counter, ns_time);
+		mcu_active_counter = MIN(mcu_active_counter, ns_time);
 
 		kbdev->pm.backend.metrics.values.time_busy +=
 			gpu_iter_active_counter;
@@ -303,6 +333,9 @@ static void kbase_pm_get_dvfs_utilisation_calc(struct kbase_device *kbdev)
 		 */
 		kbdev->pm.backend.metrics.values.time_in_protm +=
 			protected_time;
+		kbdev->pm.backend.metrics.values.busy_mcu += mcu_active_counter;
+		kbdev->pm.backend.metrics.values.idle_mcu +=
+			(ns_time - mcu_active_counter);
 	}
 
 	kbdev->pm.backend.metrics.time_period_start = now;
@@ -364,6 +397,8 @@ void kbase_pm_get_dvfs_metrics(struct kbase_device *kbdev,
 
 #if MALI_USE_CSF
 	diff->time_in_protm = cur->time_in_protm - last->time_in_protm;
+	diff->busy_mcu = cur->busy_mcu - last->busy_mcu;
+	diff->idle_mcu = cur->idle_mcu - last->idle_mcu;
 #else
 	diff->busy_cl[0] = cur->busy_cl[0] - last->busy_cl[0];
 	diff->busy_cl[1] = cur->busy_cl[1] - last->busy_cl[1];
@@ -380,7 +415,7 @@ KBASE_EXPORT_TEST_API(kbase_pm_get_dvfs_metrics);
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 void kbase_pm_get_dvfs_action(struct kbase_device *kbdev)
 {
-	int utilisation;
+	int utilisation, mcu_utilisation;
 	struct kbasep_pm_metrics *diff;
 #if !MALI_USE_CSF
 	int busy;
@@ -398,6 +433,9 @@ void kbase_pm_get_dvfs_action(struct kbase_device *kbdev)
 	utilisation = (100 * diff->time_busy) /
 			max(diff->time_busy + diff->time_idle, 1u);
 
+	mcu_utilisation = (100 * diff->busy_mcu) /
+			  max(diff->busy_mcu + diff->idle_mcu, 1u);
+
 #if !MALI_USE_CSF
 	busy = max(diff->busy_gl + diff->busy_cl[0] + diff->busy_cl[1], 1u);
 
@@ -414,7 +452,7 @@ void kbase_pm_get_dvfs_action(struct kbase_device *kbdev)
 	 * protected mode is already added to busy-time at this point, though,
 	 * so we should be good.
 	 */
-	kbase_platform_dvfs_event(kbdev, utilisation);
+	kbase_platform_dvfs_event_mcu(kbdev, utilisation, mcu_utilisation);
 #endif
 }
 

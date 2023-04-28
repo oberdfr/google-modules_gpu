@@ -590,6 +590,8 @@ void kbase_pm_get_dvfs_metrics(struct kbase_device *kbdev,
  * Return:         Returns 0 on failure and non zero on success.
  */
 int kbase_platform_dvfs_event(struct kbase_device *kbdev, u32 utilisation);
+int kbase_platform_dvfs_event_mcu(struct kbase_device *kbdev, u32 utilisation,
+				  u32 mcu_utilisation);
 #else
 /**
  * kbase_platform_dvfs_event - Report utilisation to DVFS code for JM GPU

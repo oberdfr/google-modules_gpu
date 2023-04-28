@@ -90,10 +90,16 @@ kbase_ipa_attach_ipa_control(struct kbase_ipa_counter_model_data *model_data)
 	int err;
 	size_t i;
 
-	/* Value for GPU_ITER_ACTIVE counter also needs to be queried. It is required
-	 * for the normalization of top-level and shader core counters.
+	/* Value for GPU_ITER_ACTIVE counter also needs to be
+         * queried. It is required for the normalization of top-level and shader
+         * core counters.
+         *
+         * The MCU_ACTIVE counter is used alongside GPU_ITER_ACTIVE in this
+         * function and all modifications pertaining to it are applicable for
+         * MCU_ACTIVE as well.
 	 */
-	model_data->num_counters = 1 + model_data->num_top_level_cntrs +
+	model_data->num_counters = IPA_NUM_PERF_COUNTERS +
+				   model_data->num_top_level_cntrs +
 				   model_data->num_shader_cores_cntrs;
 
 	perf_counters = kcalloc(model_data->num_counters,
@@ -110,7 +116,13 @@ kbase_ipa_attach_ipa_control(struct kbase_ipa_counter_model_data *model_data)
 	 * by the CSF GPUs.
 	 */
 	perf_counters[cnt_idx].type = KBASE_IPA_CORE_TYPE_CSHW;
-	perf_counters[cnt_idx].idx = GPU_ITER_ACTIVE_CNT_IDX;
+	perf_counters[cnt_idx].idx = IPA_GPU_ITER_ACTIVE_CNT_IDX;
+	perf_counters[cnt_idx].gpu_norm = false;
+	perf_counters[cnt_idx].scaling_factor = 1;
+	cnt_idx++;
+
+	perf_counters[cnt_idx].type = KBASE_IPA_CORE_TYPE_CSHW;
+	perf_counters[cnt_idx].idx = IPA_MCU_ACTIVE_CNT_IDX;
 	perf_counters[cnt_idx].gpu_norm = false;
 	perf_counters[cnt_idx].scaling_factor = 1;
 	cnt_idx++;

@@ -63,6 +63,97 @@ static int gpu_dvfs_governor_basic(struct kbase_device *kbdev,
 }
 
 /**
+ * gpu_dvfs_governor_quickstep_use_mcu_util() - The evaluation function for &GPU_DVFS_GOVERNOR_QUICKSTEP_USE_MCU.
+ *
+ * @kbdev:      The &struct kbase_device for the GPU.
+ * @util_stats: The current GPU utilization statistics.
+ *
+ * Algorithm:
+ *   * If we are within the utilization bounds of the current level then
+ *     no change is made.
+ *
+ *   * If &util or &mcu_util is above the maximum for the current level we calculate how much
+ *     above the maximum we are. &util is higher closer to 100% than it is to
+ *     the maximum utilization for the current level then we move up &step_up levels.
+ *     We also move up &step_up levels if the &mcu_util is more than 25% over
+ *     &mcu_up_util of that particular level.
+ *     Otherwise we move up just a single level. If we skip a level, we also
+ *     halve the hysteresis for the new level, so that we can swiftly correct
+ *     overshoots.
+ *
+ *   * If &util or &mcu_util is lower than the minimm utilization for the current level, then
+ *     we decrement the hysteresis value. If this decrement results in
+ *     hysteresis being zero, then we drop a level.
+ *
+ * Return: The level that the GPU should run at next.
+ *
+ * Context: Process context. Expects the caller to hold the DVFS lock.
+ */
+static int
+gpu_dvfs_governor_quickstep_use_mcu_util(struct kbase_device *kbdev,
+					 struct gpu_dvfs_utlization *util_stats)
+{
+	struct pixel_context *pc = kbdev->platform_context;
+	struct gpu_dvfs_opp *tbl = pc->dvfs.table;
+	int level = pc->dvfs.level;
+	int level_max = pc->dvfs.level_max;
+	int level_min = pc->dvfs.level_min;
+	int util = util_stats->util;
+	int mcu_util = util_stats->mcu_util;
+	int step_up = pc->dvfs.step_up_val;
+	int mcu_scale_num = pc->dvfs.tunable.mcu_down_util_scale_num;
+	int mcu_scale_den = pc->dvfs.tunable.mcu_down_util_scale_den;
+
+	lockdep_assert_held(&pc->dvfs.lock);
+
+	if ((level > level_max) && (util > tbl[level].util_max ||
+				    mcu_util > tbl[level].mcu_util_max)) {
+		/* We need to clock up. */
+		if (level >= step_up &&
+		    ((util > (100 + tbl[level].util_max) / 2) ||
+		     mcu_util > (mcu_scale_num *
+				 (tbl[level].mcu_util_max / mcu_scale_den)))) {
+			dev_dbg(kbdev->dev,
+				"DVFS +%d: %d -> %d (util: %d / %d | mcu: %d / %d)\n",
+				step_up, level, level - step_up, util,
+				tbl[level].util_max, mcu_util,
+				tbl[level].mcu_util_max);
+			level -= step_up;
+			pc->dvfs.governor.delay = tbl[level].hysteresis / 2;
+		} else {
+			dev_dbg(kbdev->dev,
+				"DVFS +1: %d -> %d (util: %d / %d mcu: %d / %d) \n",
+				level, level - 1, util, tbl[level].util_max,
+				mcu_util, tbl[level].mcu_util_max);
+			level -= 1;
+			pc->dvfs.governor.delay = tbl[level].hysteresis;
+		}
+
+	} else if ((level < level_min) && (util < tbl[level].util_min) &&
+		   (mcu_util < tbl[level].mcu_util_min)) {
+		/* We are clocked too high */
+		pc->dvfs.governor.delay--;
+
+		/* Check if we've resisted downclocking long enough */
+		if (pc->dvfs.governor.delay <= 0) {
+			dev_dbg(kbdev->dev, "DVFS -1: %d -> %d (u: %d / %d)\n",
+				level, level + 1, util, tbl[level].util_min);
+
+			/* Time to clock down */
+			level++;
+
+			/* Reset hysteresis */
+			pc->dvfs.governor.delay = tbl[level].hysteresis;
+		}
+	} else {
+		/* We are at the correct level, reset hysteresis */
+		pc->dvfs.governor.delay = tbl[level].hysteresis;
+	}
+
+	return level;
+}
+
+/**
  * gpu_dvfs_governor_quickstep() - The evaluation function for &GPU_DVFS_GOVERNOR_QUICKSTEP.
  *
  * @kbdev:      The &struct kbase_device for the GPU.
@@ -88,7 +179,7 @@ static int gpu_dvfs_governor_basic(struct kbase_device *kbdev,
  * Context: Process context. Expects the caller to hold the DVFS lock.
  */
 static int gpu_dvfs_governor_quickstep(struct kbase_device *kbdev,
-	struct gpu_dvfs_utlization *util_stats)
+				       struct gpu_dvfs_utlization *util_stats)
 {
 	struct pixel_context *pc = kbdev->platform_context;
 	struct gpu_dvfs_opp *tbl = pc->dvfs.table;
@@ -146,6 +237,13 @@ static struct gpu_dvfs_governor_info governors[GPU_DVFS_GOVERNOR_COUNT] = {
 		"quickstep",
 		gpu_dvfs_governor_quickstep,
 	}
+#if MALI_USE_CSF
+	,
+	{
+		"quickstep_use_mcu",
+		gpu_dvfs_governor_quickstep_use_mcu_util,
+	}
+#endif
 };
 
 /**

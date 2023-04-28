@@ -105,6 +105,8 @@ enum kbase_shader_core_state {
  *              time_period_start timestamp, measured in units of 256ns.
  *  @time_in_protm: The amount of time the GPU has spent in protected mode since
  *                  the time_period_start timestamp, measured in units of 256ns.
+ *  @busy_mcu: The amount of time MCU was busy measured in units of 256ns
+ *  @idle_mcu: The amount of time MCU was idle measured in units of 256ns
  *  @busy_cl: the amount of time the GPU was busy executing CL jobs. Note that
  *           if two CL jobs were active for 256ns, this value would be updated
  *           with 2 (2x256ns).
@@ -117,6 +119,8 @@ struct kbasep_pm_metrics {
 	u32 time_idle;
 #if MALI_USE_CSF
 	u32 time_in_protm;
+	u32 busy_mcu;
+	u32 idle_mcu;
 #else
 	u32 busy_cl[2];
 	u32 busy_gl;
