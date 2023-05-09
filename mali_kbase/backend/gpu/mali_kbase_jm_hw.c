@@ -224,36 +224,47 @@ int kbase_job_hw_submit(struct kbase_device *kbdev, struct kbase_jd_atom *katom,
 	 */
 	cfg = kctx->as_nr;
 
-	if (kbase_hw_has_feature(kbdev, BASE_HW_FEATURE_FLUSH_REDUCTION) &&
-			!(kbdev->serialize_jobs & KBASE_SERIALIZE_RESET))
-		cfg |= JS_CONFIG_ENABLE_FLUSH_REDUCTION;
+	if(!kbase_jd_katom_is_protected(katom)) {
+		if (kbase_hw_has_feature(kbdev, BASE_HW_FEATURE_FLUSH_REDUCTION) &&
+		    !(kbdev->serialize_jobs & KBASE_SERIALIZE_RESET))
+			cfg |= JS_CONFIG_ENABLE_FLUSH_REDUCTION;
 
-	if (0 != (katom->core_req & BASE_JD_REQ_SKIP_CACHE_START)) {
-		/* Force a cache maintenance operation if the newly submitted
-		 * katom to the slot is from a different kctx. For a JM GPU
-		 * that has the feature BASE_HW_FEATURE_FLUSH_INV_SHADER_OTHER,
-		 * applies a FLUSH_INV_SHADER_OTHER. Otherwise, do a
-		 * FLUSH_CLEAN_INVALIDATE.
-		 */
-		u64 tagged_kctx = ptr_slot_rb->last_kctx_tagged;
+		if (0 != (katom->core_req & BASE_JD_REQ_SKIP_CACHE_START)) {
+			/* Force a cache maintenance operation if the newly submitted
+			 * katom to the slot is from a different kctx. For a JM GPU
+			 * that has the feature BASE_HW_FEATURE_FLUSH_INV_SHADER_OTHER,
+			 * applies a FLUSH_INV_SHADER_OTHER. Otherwise, do a
+			 * FLUSH_CLEAN_INVALIDATE.
+			 */
+			u64 tagged_kctx = ptr_slot_rb->last_kctx_tagged;
 
-		if (tagged_kctx != SLOT_RB_NULL_TAG_VAL && tagged_kctx != SLOT_RB_TAG_KCTX(kctx)) {
-			if (kbase_hw_has_feature(kbdev, BASE_HW_FEATURE_FLUSH_INV_SHADER_OTHER))
-				cfg |= JS_CONFIG_START_FLUSH_INV_SHADER_OTHER;
-			else
-				cfg |= JS_CONFIG_START_FLUSH_CLEAN_INVALIDATE;
+			if (tagged_kctx != SLOT_RB_NULL_TAG_VAL &&
+			    tagged_kctx != SLOT_RB_TAG_KCTX(kctx)) {
+				if (kbase_hw_has_feature(kbdev,
+							 BASE_HW_FEATURE_FLUSH_INV_SHADER_OTHER))
+					cfg |= JS_CONFIG_START_FLUSH_INV_SHADER_OTHER;
+				else
+					cfg |= JS_CONFIG_START_FLUSH_CLEAN_INVALIDATE;
+			} else
+				cfg |= JS_CONFIG_START_FLUSH_NO_ACTION;
 		} else
-			cfg |= JS_CONFIG_START_FLUSH_NO_ACTION;
-	} else
-		cfg |= JS_CONFIG_START_FLUSH_CLEAN_INVALIDATE;
+			cfg |= JS_CONFIG_START_FLUSH_CLEAN_INVALIDATE;
 
-	if (0 != (katom->core_req & BASE_JD_REQ_SKIP_CACHE_END) &&
-			!(kbdev->serialize_jobs & KBASE_SERIALIZE_RESET))
-		cfg |= JS_CONFIG_END_FLUSH_NO_ACTION;
-	else if (kbase_hw_has_feature(kbdev, BASE_HW_FEATURE_CLEAN_ONLY_SAFE))
+		if (0 != (katom->core_req & BASE_JD_REQ_SKIP_CACHE_END) &&
+		    !(kbdev->serialize_jobs & KBASE_SERIALIZE_RESET))
+			cfg |= JS_CONFIG_END_FLUSH_NO_ACTION;
+		else if (kbase_hw_has_feature(kbdev, BASE_HW_FEATURE_CLEAN_ONLY_SAFE))
+			cfg |= JS_CONFIG_END_FLUSH_CLEAN;
+		else
+			cfg |= JS_CONFIG_END_FLUSH_CLEAN_INVALIDATE;
+	} else {
+		/* Force cache flush on job chain start/end if katom is protected.
+		 * Valhall JM GPUs have BASE_HW_FEATURE_CLEAN_ONLY_SAFE feature,
+		 * so DDK set JS_CONFIG_END_FLUSH_CLEAN config
+		 */
+		cfg |= JS_CONFIG_START_FLUSH_CLEAN_INVALIDATE;
 		cfg |= JS_CONFIG_END_FLUSH_CLEAN;
-	else
-		cfg |= JS_CONFIG_END_FLUSH_CLEAN_INVALIDATE;
+	}
 
 	cfg |= JS_CONFIG_THREAD_PRI(8);
 
@@ -883,11 +894,11 @@ u32 kbase_backend_get_current_flush_id(struct kbase_device *kbdev)
 	u32 flush_id = 0;
 
 	if (kbase_hw_has_feature(kbdev, BASE_HW_FEATURE_FLUSH_REDUCTION)) {
-		mutex_lock(&kbdev->pm.lock);
+		rt_mutex_lock(&kbdev->pm.lock);
 		if (kbdev->pm.backend.gpu_powered)
 			flush_id = kbase_reg_read(kbdev,
 					GPU_CONTROL_REG(LATEST_FLUSH));
-		mutex_unlock(&kbdev->pm.lock);
+		rt_mutex_unlock(&kbdev->pm.lock);
 	}
 
 	return flush_id;
@@ -1136,7 +1147,7 @@ static void kbasep_reset_timeout_worker(struct work_struct *data)
 		WARN(!max_loops, "L2 power transition timed out while trying to reset\n");
 	}
 
-	mutex_lock(&kbdev->pm.lock);
+	rt_mutex_lock(&kbdev->pm.lock);
 	/* We hold the pm lock, so there ought to be a current policy */
 	if (unlikely(!kbdev->pm.backend.pm_current_policy))
 		dev_warn(kbdev->dev, "No power policy set!");
@@ -1175,7 +1186,7 @@ static void kbasep_reset_timeout_worker(struct work_struct *data)
 	/* Reset the GPU */
 	kbase_pm_init_hw(kbdev, 0);
 
-	mutex_unlock(&kbdev->pm.lock);
+	rt_mutex_unlock(&kbdev->pm.lock);
 
 	mutex_lock(&js_devdata->runpool_mutex);
 
@@ -1191,7 +1202,7 @@ static void kbasep_reset_timeout_worker(struct work_struct *data)
 
 	mutex_unlock(&js_devdata->runpool_mutex);
 
-	mutex_lock(&kbdev->pm.lock);
+	rt_mutex_lock(&kbdev->pm.lock);
 
 	kbase_pm_reset_complete(kbdev);
 
@@ -1203,7 +1214,7 @@ static void kbasep_reset_timeout_worker(struct work_struct *data)
 	 */
 	kbase_pm_wait_for_desired_state(kbdev);
 
-	mutex_unlock(&kbdev->pm.lock);
+	rt_mutex_unlock(&kbdev->pm.lock);
 
 	atomic_set(&kbdev->hwaccess.backend.reset_gpu,
 						KBASE_RESET_GPU_NOT_PENDING);
