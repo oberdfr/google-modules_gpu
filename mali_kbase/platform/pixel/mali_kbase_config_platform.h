@@ -103,6 +103,8 @@ extern struct protected_mode_ops pixel_protected_ops;
 #include "pixel_gpu_dvfs.h"
 #endif /* CONFIG_MALI_MIDGARD_DVFS */
 
+#include "pixel_gpu_uevent.h"
+
 /* All port specific fields go here */
 #define OF_DATA_NUM_MAX 160
 #define CPU_FREQ_MAX INT_MAX

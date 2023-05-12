@@ -1576,7 +1576,10 @@ static int kbasep_kcpu_queue_enqueue(struct kbase_context *kctx,
 static int kbasep_cs_tiler_heap_init(struct kbase_context *kctx,
 		union kbase_ioctl_cs_tiler_heap_init *heap_init)
 {
-	kctx->jit_group_id = heap_init->in.group_id;
+	if (heap_init->in.group_id >= MEMORY_GROUP_MANAGER_NR_GROUPS)
+		return -EINVAL;
+	else
+		kctx->jit_group_id = heap_init->in.group_id;
 
 	return kbase_csf_tiler_heap_init(kctx, heap_init->in.chunk_size,
 					 heap_init->in.initial_chunks, heap_init->in.max_chunks,
@@ -2650,7 +2653,7 @@ static ssize_t core_mask_store(struct device *dev, struct device_attribute *attr
 		new_core_mask[1] = new_core_mask[2] = new_core_mask[0];
 #endif
 
-	mutex_lock(&kbdev->pm.lock);
+	rt_mutex_lock(&kbdev->pm.lock);
 	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
 
 	shader_present = kbdev->gpu_props.props.raw_props.shader_present;
@@ -2720,7 +2723,7 @@ static ssize_t core_mask_store(struct device *dev, struct device_attribute *attr
 
 unlock:
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
-	mutex_unlock(&kbdev->pm.lock);
+	rt_mutex_unlock(&kbdev->pm.lock);
 end:
 	return err;
 }
@@ -4859,6 +4862,45 @@ static int kbase_device_debugfs_reset_write(void *data, u64 wait_for_reset)
 DEFINE_DEBUGFS_ATTRIBUTE(fops_trigger_reset, NULL, &kbase_device_debugfs_reset_write, "%llu\n");
 
 /**
+ * kbase_device_debugfs_trigger_uevent_write - send a GPU uevent
+ * @file: File object to write to
+ * @ubuf:  User buffer to read data from
+ * @count:  Length of user buffer
+ * @ppos: Offset within file object
+ *
+ * Return: bytes read.
+ */
+static ssize_t kbase_device_debugfs_trigger_uevent_write(struct file *file,
+		const char __user *ubuf, size_t count, loff_t *ppos)
+{
+	struct kbase_device *kbdev = (struct kbase_device *)file->private_data;
+	struct gpu_uevent evt = { 0 };
+	char str[8] = { 0 };
+
+	if (count >= sizeof(str))
+		return -EINVAL;
+
+	if (copy_from_user(str, ubuf, count))
+		return -EINVAL;
+
+	str[count] = '\0';
+
+	if (sscanf(str, "%u %u", &evt.type, &evt.info) != 2)
+		return -EINVAL;
+
+	pixel_gpu_uevent_send(kbdev, (const struct gpu_uevent *) &evt);
+
+	return count;
+}
+
+static const struct file_operations fops_trigger_uevent = {
+	.owner = THIS_MODULE,
+	.open = simple_open,
+	.write = kbase_device_debugfs_trigger_uevent_write,
+	.llseek = default_llseek,
+};
+
+/**
  * debugfs_protected_debug_mode_read - "protected_debug_mode" debugfs read
  * @file: File object to read is for
  * @buf:  User buffer to populate with data
@@ -5034,6 +5076,10 @@ int kbase_device_debugfs_init(struct kbase_device *kbdev)
 	debugfs_create_file("reset", 0644,
 			kbdev->mali_debugfs_directory, kbdev,
 			&fops_trigger_reset);
+
+	debugfs_create_file("trigger_uevent", 0644,
+			kbdev->mali_debugfs_directory, kbdev,
+			&fops_trigger_uevent);
 
 	kbase_ktrace_debugfs_init(kbdev);
 
