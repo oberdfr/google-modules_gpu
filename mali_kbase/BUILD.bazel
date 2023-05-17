@@ -14,6 +14,8 @@ kernel_module(
     ],
     outs = [
         "mali_kbase.ko",
+        "tests/kutf/mali_kutf.ko",
+        "tests/mali_kutf_clk_rate_trace/kernel/mali_kutf_clk_rate_trace_test_portal.ko",
     ],
     kernel_build = "//private/google-modules/soc/gs:gs_kernel_build",
     visibility = [
