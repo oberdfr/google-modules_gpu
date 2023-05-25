@@ -349,7 +349,9 @@ void gpu_dvfs_select_level(struct kbase_device *kbdev)
 
 	if (pc->dvfs.updates_enabled && gpu_pm_get_power_state(kbdev)) {
 		util_stats.util = atomic_read(&pc->dvfs.util);
-#if !MALI_USE_CSF
+#if MALI_USE_CSF
+		util_stats.mcu_util = atomic_read(&pc->dvfs.mcu_util);
+#else
 		util_stats.util_gl = atomic_read(&pc->dvfs.util_gl);
 		util_stats.util_cl = atomic_read(&pc->dvfs.util_cl);
 #endif
@@ -445,7 +447,6 @@ int kbase_platform_dvfs_event(struct kbase_device *kbdev, u32 utilisation)
 	struct pixel_context *pc = kbdev->platform_context;
 	int proc = raw_smp_processor_id();
 
-	/* TODO (b/187175695): Report this data via a custom ftrace event instead */
 	trace_clock_set_rate("gpu_util", utilisation, proc);
 
 	atomic_set(&pc->dvfs.util, utilisation);
@@ -453,6 +454,38 @@ int kbase_platform_dvfs_event(struct kbase_device *kbdev, u32 utilisation)
 
 	return 1;
 }
+
+/**
+ * kbase_platform_dvfs_event_mcu() - Callback from Mali driver to report updated mcu and the total GPU utilization metrics.
+ *
+ * @kbdev:         The &struct kbase_device for the GPU.
+ * @utilisation:   The calculated GPU utilization as measured by the core Mali driver's metrics system.
+ * @mcu_utilisation: The MCU utilisation
+ *
+ * This is the function that bridges the core Mali driver and the Pixel integration code. As this is
+ * made in interrupt context, it is swiftly handed off to a work_queue for further processing.
+ *
+ * Context: Interrupt context.
+ *
+ * Return: Returns 1 to signal success as specified in mali_kbase_pm_internal.h.
+ */
+
+int kbase_platform_dvfs_event_mcu(struct kbase_device *kbdev, u32 utilisation,
+				  u32 mcu_utilisation)
+{
+	struct pixel_context *pc = kbdev->platform_context;
+	int proc = raw_smp_processor_id();
+
+	trace_clock_set_rate("gpu_util", utilisation, proc);
+	trace_clock_set_rate("mcu_util", mcu_utilisation, proc);
+
+	atomic_set(&pc->dvfs.util, utilisation);
+	atomic_set(&pc->dvfs.mcu_util, mcu_utilisation);
+	queue_work(pc->dvfs.control_wq, &pc->dvfs.control_work);
+
+	return 1;
+}
+
 #else /* MALI_USE_CSF */
 /**
  * kbase_platform_dvfs_event() - Callback from Mali driver to report updated utilization metrics.
@@ -596,8 +629,8 @@ static int validate_and_parse_dvfs_table(struct kbase_device *kbdev, int dvfs_ta
 
 	of_property_read_u32(np, "gpu_dvfs_max_freq", &scaling_freq_max_devicetree);
 	of_property_read_u32(np, "gpu_dvfs_min_freq", &scaling_freq_min_devicetree);
-	of_property_read_u32(np, "gpu_dvfs_min_freq_compute", &scaling_freq_min_compute);
-
+	of_property_read_u32(np, "gpu_dvfs_min_freq_compute",
+			     &scaling_freq_min_compute);
 	/* Check if there is a voltage mapping for each frequency in the ECT table */
 	for (i = 0; i < dvfs_table_row_num; i++) {
 		idx = i * dvfs_table_col_num;
@@ -640,6 +673,10 @@ static int validate_and_parse_dvfs_table(struct kbase_device *kbdev, int dvfs_ta
 		gpu_dvfs_table[i].qos.cpu0_min = of_data_int_array[idx + 7];
 		gpu_dvfs_table[i].qos.cpu1_min = of_data_int_array[idx + 8];
 		gpu_dvfs_table[i].qos.cpu2_max = of_data_int_array[idx + 9];
+#if MALI_USE_CSF
+		gpu_dvfs_table[i].mcu_util_max = of_data_int_array[idx + 10];
+		gpu_dvfs_table[i].mcu_util_min = of_data_int_array[idx + 11];
+#endif
 
 		/* Handle case where CPU cluster 2 has no limit set */
 		if (!gpu_dvfs_table[i].qos.cpu2_max)
@@ -763,6 +800,7 @@ static int gpu_dvfs_set_initial_level(struct kbase_device *kbdev)
 int gpu_dvfs_init(struct kbase_device *kbdev)
 {
 	int i, ret = 0;
+	int of_data_int_array[OF_DATA_NUM_MAX];
 	struct pixel_context *pc = kbdev->platform_context;
 	struct device_node *np = kbdev->dev->of_node;
 
@@ -805,6 +843,24 @@ int gpu_dvfs_init(struct kbase_device *kbdev)
 		ret = -EINVAL;
 		goto done;
 	}
+#if MALI_USE_CSF
+	/* Set up DVFS perf tuning variables */
+	if (of_property_read_u32_array(np, "mcu_protm_scale", of_data_int_array,
+				       2)) {
+		ret = -EINVAL;
+		goto done;
+	}
+	pc->dvfs.tunable.mcu_protm_scale_num = of_data_int_array[0];
+	pc->dvfs.tunable.mcu_protm_scale_den = of_data_int_array[1];
+
+	if (of_property_read_u32_array(np, "mcu_down_util_scale",
+				       of_data_int_array, 2)) {
+		ret = -EINVAL;
+		goto done;
+	}
+	pc->dvfs.tunable.mcu_down_util_scale_num = of_data_int_array[0];
+	pc->dvfs.tunable.mcu_down_util_scale_den = of_data_int_array[1];
+#endif
 
 	/* Setup dvfs step up value */
 	if (of_property_read_u32(np, "gpu_dvfs_step_up_val", &pc->dvfs.step_up_val)) {
@@ -820,6 +876,7 @@ int gpu_dvfs_init(struct kbase_device *kbdev)
 		goto done;
 	}
 	atomic_set(&pc->dvfs.util, 0);
+	atomic_set(&pc->dvfs.mcu_util, 0);
 
 	/* Initialize DVFS governors */
 	ret = gpu_dvfs_governor_init(kbdev);

@@ -33,6 +33,9 @@ endif
 # Pixel integration configuration values
 #
 
+# Debug Ftrace configuration options
+CONFIG_MALI_SYSTEM_TRACE=y
+
 # Core kbase configuration options
 CONFIG_MALI_EXPERT=y
 CONFIG_MALI_MIDGARD_DVFS=y
@@ -124,7 +127,6 @@ ifeq ($(CONFIG_MALI_MIDGARD),m)
         else
             # Prevent misuse when CONFIG_MALI_DEBUG=n
             CONFIG_MALI_MIDGARD_ENABLE_TRACE = n
-            CONFIG_MALI_SYSTEM_TRACE = n
             CONFIG_MALI_FENCE_DEBUG = n
         endif
     else
@@ -142,7 +144,6 @@ ifeq ($(CONFIG_MALI_MIDGARD),m)
         CONFIG_MALI_PRFCNT_SET_SELECT_VIA_DEBUG_FS = n
         CONFIG_MALI_DEBUG = n
         CONFIG_MALI_MIDGARD_ENABLE_TRACE = n
-        CONFIG_MALI_SYSTEM_TRACE = n
         CONFIG_MALI_FENCE_DEBUG = n
     endif
 
@@ -160,9 +161,9 @@ ifeq ($(CONFIG_MALI_MIDGARD),m)
         endif
     else
         # Prevent misuse when CONFIG_MALI_DEBUG=n
-        CONFIG_MALI_KUTF = n
+        CONFIG_MALI_KUTF = y
         CONFIG_MALI_KUTF_IRQ_TEST = n
-        CONFIG_MALI_KUTF_CLK_RATE_TRACE = n
+        CONFIG_MALI_KUTF_CLK_RATE_TRACE = y
         CONFIG_MALI_KUTF_MGM_INTEGRATION_TEST = n
     endif
 else
@@ -222,6 +223,7 @@ CONFIGS += \
     CONFIG_MALI_PIXEL_GPU_BTS \
     CONFIG_MALI_PIXEL_GPU_THERMAL \
     CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING \
+    CONFIG_MALI_HOST_CONTROLS_SC_RAILS \
     CONFIG_MALI_PIXEL_GPU_PM \
     CONFIG_MALI_PIXEL_GPU_SLC
 

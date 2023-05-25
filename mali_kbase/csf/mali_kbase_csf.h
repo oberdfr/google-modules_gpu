@@ -48,8 +48,7 @@
 
 #define FIRMWARE_PING_INTERVAL_MS (12000 * KBASE_TIMEOUT_MULTIPLIER) /* 12 seconds */
 
-/* TODO: Other platforms use 60ms; consider tuning this value */
-#define FIRMWARE_IDLE_HYSTERESIS_TIME_MS (100)
+#define FIRMWARE_IDLE_HYSTERESIS_TIME_MS (60)
 
 #define MALI_HOST_CONTROLS_SC_RAILS_IDLE_TIMER_US (600)
 

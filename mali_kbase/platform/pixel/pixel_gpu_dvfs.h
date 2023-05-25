@@ -56,12 +56,16 @@ struct gpu_dvfs_clk {
 /**
  * struct gpu_dvfs_utlization - Stores utilization statistics
  *
- * @util:    Overall utilization of the GPU
- * @util_gl: The share of utilization due to non-OpenCL work
- * @util_cl: The share of utilization due ot OpenCL work
+ * @util:     Overall utilization of the GPU
+ * @mcu_util: Utilization of the MCU
+ * @util_gl:  The share of utilization due to non-OpenCL work
+ * @util_cl:  The share of utilization due ot OpenCL work
  */
 struct gpu_dvfs_utlization {
 	int util;
+#if MALI_USE_CSF
+	int mcu_util;
+#endif
 	int util_gl;
 	int util_cl;
 };
@@ -108,6 +112,9 @@ enum gpu_dvfs_governor_type {
 	 */
 	GPU_DVFS_GOVERNOR_BASIC = 0,
 	GPU_DVFS_GOVERNOR_QUICKSTEP,
+#if MALI_USE_CSF
+	GPU_DVFS_GOVERNOR_QUICKSTEP_USE_MCU,
+#endif
 	/* Insert new governors here */
 	GPU_DVFS_GOVERNOR_COUNT,
 	GPU_DVFS_GOVERNOR_INVALID,
