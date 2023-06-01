@@ -1046,7 +1046,11 @@ struct kbase_csf_scheduler {
 	struct kbase_context *top_ctx;
 	struct kbase_queue_group *top_grp;
 	struct kbase_queue_group *active_protm_grp;
+#ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
 	struct delayed_work gpu_idle_work;
+#else
+	struct work_struct gpu_idle_work;
+#endif
 	struct workqueue_struct *idle_wq;
 	atomic_t gpu_no_longer_idle;
 	atomic_t non_idle_offslot_grps;
@@ -1059,8 +1063,8 @@ struct kbase_csf_scheduler {
 	struct work_struct sc_rails_off_work;
 	bool sc_power_rails_off;
 	bool gpu_idle_work_pending;
-#endif
 	bool gpu_idle_fw_timer_enabled;
+#endif
 	ktime_t protm_enter_time;
 	struct kbase_csf_sched_heap_reclaim_mgr reclaim_mgr;
 };
