@@ -299,12 +299,13 @@ static void kbase_mmu_sync_pgd_gpu(struct kbase_device *kbdev, struct kbase_cont
 
 static void kbase_mmu_sync_pgd_cpu(struct kbase_device *kbdev, dma_addr_t handle, size_t size)
 {
-	/* In non-coherent system, ensure the GPU can read
-	 * the pages from memory
+	/* Ensure that the GPU can read the pages from memory.
+	 *
+	 * pixel: b/200555454 requires this sync to happen even if the system
+	 * is coherent.
 	 */
-	if (kbdev->system_coherency == COHERENCY_NONE)
-		dma_sync_single_for_device(kbdev->dev, handle, size,
-				DMA_TO_DEVICE);
+	dma_sync_single_for_device(kbdev->dev, handle, size,
+			DMA_TO_DEVICE);
 }
 
 /**
@@ -2751,6 +2752,10 @@ int kbase_mmu_init(struct kbase_device *const kbdev,
 void kbase_mmu_term(struct kbase_device *kbdev, struct kbase_mmu_table *mmut)
 {
 	int level;
+
+	WARN((mmut->kctx) && (mmut->kctx->as_nr != KBASEP_AS_NR_INVALID),
+	     "kctx-%d_%d must first be scheduled out to flush GPU caches+tlbs before tearing down MMU tables",
+	     mmut->kctx->tgid, mmut->kctx->id);
 
 	if (mmut->pgd != KBASE_MMU_INVALID_PGD_ADDRESS) {
 		rt_mutex_lock(&mmut->mmu_lock);

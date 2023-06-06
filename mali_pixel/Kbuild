@@ -24,15 +24,17 @@ src:=$(if $(patsubst /%,,$(src)),$(srctree)/$(src),$(src))
 CONFIG_MALI_MEMORY_GROUP_MANAGER ?= m
 CONFIG_MALI_PRIORITY_CONTROL_MANAGER ?= m
 CONFIG_MALI_PROTECTED_MEMORY_ALLOCATOR ?= m
-# CONFIG_MALI_PIXEL_STATS ?= m
+CONFIG_MALI_PIXEL_STATS ?= m
 CONFIG_MALI_PIXEL_GPU_SLC=y
 
 mali_pixel-objs :=
 
-#ifeq ($(CONFIG_MALI_PIXEL_STATS),m)
-#	DEFINES += -DCONFIG_MALI_PIXEL_STATS
-#	mali_pixel-objs += mali_pixel_stats.o
-#endif
+ifeq ($(CONFIG_PIXEL_STAT),m)
+	ifeq ($(CONFIG_MALI_PIXEL_STATS),m)
+		DEFINES += -DCONFIG_MALI_PIXEL_STATS
+		mali_pixel-objs += mali_pixel_stats.o
+	endif
+endif
 
 ifeq ($(CONFIG_MALI_MEMORY_GROUP_MANAGER),m)
 	DEFINES += -DCONFIG_MALI_MEMORY_GROUP_MANAGER

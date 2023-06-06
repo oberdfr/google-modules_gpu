@@ -103,8 +103,10 @@ extern struct protected_mode_ops pixel_protected_ops;
 #include "pixel_gpu_dvfs.h"
 #endif /* CONFIG_MALI_MIDGARD_DVFS */
 
+#include "pixel_gpu_uevent.h"
+
 /* All port specific fields go here */
-#define OF_DATA_NUM_MAX 140
+#define OF_DATA_NUM_MAX 160
 #define CPU_FREQ_MAX INT_MAX
 
 enum gpu_power_state {
@@ -171,6 +173,10 @@ struct gpu_dvfs_opp_metrics {
  *                operating point.
  * @util_max:     The maximum threshold of utlization before the governor should consider moving to
  *                a higher operating point.
+ * @mcu_util_max: The maximum threshold of MCU utilization above which the
+ *                governor should consider moving to a higher OPP
+ * @mcu_util_min: The minimum value after which if the gpu utilisation is also
+ *                low, the DVFS should consider a lower OPP
  * @hysteresis:   A measure of how long the governor should keep the GPU at this operating point
  *                before moving to a lower one. For example, in the basic governor, this translates
  *                directly into &hr_timer ticks for the Mali DVFS utilization thread, but other
@@ -196,6 +202,8 @@ struct gpu_dvfs_opp {
 	int util_min;
 	int util_max;
 	int hysteresis;
+	int mcu_util_max;
+	int mcu_util_min;
 
 	/* Metrics */
 	struct gpu_dvfs_opp_metrics metrics;
@@ -248,6 +256,7 @@ struct gpu_dvfs_metrics_uid_stats;
  *                              incoming utilization data from the Mali driver into DVFS changes on
  *                              the GPU.
  * @dvfs.util:                  Stores incoming utilization metrics from the Mali driver.
+ * @dvfs.mcu_util:              Stores incoming MCU utilisation metrics.
  * @dvfs.util_gl:               Percentage of utilization from a non-OpenCL work
  * @dvfs.util_cl:               Percentage of utilization from a OpenCL work.
  * @dvfs.clockdown_wq:          Delayed workqueue for clocking down the GPU after it has been idle
@@ -341,6 +350,7 @@ struct pixel_context {
 		struct workqueue_struct *control_wq;
 		struct work_struct control_work;
 		atomic_t util;
+		atomic_t mcu_util;
 #if !MALI_USE_CSF
 		atomic_t util_gl;
 		atomic_t util_cl;
@@ -383,6 +393,14 @@ struct pixel_context {
 #endif /* !MALI_USE_CSF */
 			struct list_head uid_stats_list;
 		} metrics;
+#if MALI_USE_CSF
+		struct {
+			int mcu_protm_scale_num;
+			int mcu_protm_scale_den;
+			int mcu_down_util_scale_num;
+			int mcu_down_util_scale_den;
+		} tunable;
+#endif
 
 #ifdef CONFIG_MALI_PIXEL_GPU_QOS
 		struct {
