@@ -353,6 +353,14 @@ enum gpu_dvfs_level_lock_type {
 	 */
 	GPU_DVFS_LEVEL_LOCK_BCL,
 #endif /* CONFIG_GOOGLE_BCL */
+#if IS_ENABLED(CONFIG_CAL_IF)
+	/**
+	 * &GPU_DVFS_LEVEL_LOCK_ECT: ECT lock
+	 *
+	 * This lock is based on Fmax and Fmin obtained from ECT table of the chip.
+	 */
+        GPU_DVFS_LEVEL_LOCK_ECT,
+#endif /* CONFIG_CAL_IF */
 	/* Insert new level locks here */
 	GPU_DVFS_LEVEL_LOCK_COUNT,
 };

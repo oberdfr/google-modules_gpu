@@ -25,6 +25,9 @@ static const char *gpu_dvfs_level_lock_names[GPU_DVFS_LEVEL_LOCK_COUNT] = {
 #if IS_ENABLED(CONFIG_GOOGLE_BCL)
         "bcl",
 #endif
+#if IS_ENABLED(CONFIG_CAL_IF)
+	"ect",
+#endif /* CONFIG_CAL_IF */
 };
 
 /* Helper functions */
