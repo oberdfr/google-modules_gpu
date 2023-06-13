@@ -683,8 +683,8 @@ static int validate_and_parse_dvfs_table(struct kbase_device *kbdev, int dvfs_ta
 		gpu_dvfs_table[i].qos.cpu1_min = of_data_int_array[idx + 8];
 		gpu_dvfs_table[i].qos.cpu2_max = of_data_int_array[idx + 9];
 #if MALI_USE_CSF
-		gpu_dvfs_table[i].mcu_util_max = of_data_int_array[idx + 10];
-		gpu_dvfs_table[i].mcu_util_min = of_data_int_array[idx + 11];
+		gpu_dvfs_table[i].mcu_util_min = of_data_int_array[idx + 10];
+		gpu_dvfs_table[i].mcu_util_max = of_data_int_array[idx + 11];
 #endif
 
 		/* Handle case where CPU cluster 2 has no limit set */
