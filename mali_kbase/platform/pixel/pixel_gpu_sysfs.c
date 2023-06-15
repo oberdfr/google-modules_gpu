@@ -166,9 +166,9 @@ static ssize_t dvfs_table_show(struct device *dev, struct device_attribute *attr
 		return -ENODEV;
 
 	ret += scnprintf(buf + ret, PAGE_SIZE - ret,
-		" gpu_0   gpu_0   gpu_1   gpu_1  util util hyste- int_clk  mif_clk cpu0_clk cpu1_clk cpu2_clk\n"
-		"  clk     vol     clk     vol   min  max  resis    min      min     min      min      limit\n"
-		"------- ------- ------- ------- ---- ---- ------ ------- -------- -------- -------- --------\n");
+		" gpu_0   gpu_0   gpu_1   gpu_1  util util hyste- int_clk  mif_clk cpu0_clk cpu1_clk cpu2_clk    mcu      mcu\n"
+		"  clk     vol     clk     vol   min  max  resis    min      min     min      min      limit  down_util up_util\n"
+		"------- ------- ------- ------- ---- ---- ------ ------- -------- -------- -------- -------- --------- -------\n");
 
 	for (i = pc->dvfs.level_max; i <= pc->dvfs.level_min; i++) {
 		ret += scnprintf(buf + ret, PAGE_SIZE - ret,
@@ -186,10 +186,14 @@ static ssize_t dvfs_table_show(struct device *dev, struct device_attribute *attr
 			pc->dvfs.table[i].qos.cpu1_min);
 
 		if (pc->dvfs.table[i].qos.cpu2_max == CPU_FREQ_MAX)
-			ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%8s\n", "none");
+			ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%8s", "none");
 		else
-			ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%8d\n",
+			ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%8d",
 				pc->dvfs.table[i].qos.cpu2_max);
+
+		ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%9d %7d\n",
+			pc->dvfs.table[i].mcu_util_min,
+			pc->dvfs.table[i].mcu_util_max);
 	}
 
 	return ret;
