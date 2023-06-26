@@ -1484,13 +1484,16 @@ static int kbase_kcpu_fence_wait_process(
 	if (kcpu_queue->fence_wait_processed) {
 		fence_status = dma_fence_get_status(fence);
 	} else {
-		int cb_err = dma_fence_add_callback(fence,
-			&fence_info->fence_cb,
-			kbase_csf_fence_wait_callback);
+		int cb_err;
 
 		KBASE_KTRACE_ADD_CSF_KCPU(kctx->kbdev,
 					  KCPU_FENCE_WAIT_START, kcpu_queue,
 					  fence->context, fence->seqno);
+
+		 cb_err = dma_fence_add_callback(fence,
+			&fence_info->fence_cb,
+			kbase_csf_fence_wait_callback);
+
 		fence_status = cb_err;
 		if (cb_err == 0) {
 			kcpu_queue->fence_wait_processed = true;
@@ -1507,14 +1510,12 @@ static int kbase_kcpu_fence_wait_process(
 					 "Unexpected status for fence %s of ctx:%d_%d kcpu queue:%u",
 					 info.name, kctx->tgid, kctx->id, kcpu_queue->id);
 			}
-			/*
-			 * At this point the fence in question is already signalled without
-			 * any error. Its useful to print a FENCE_WAIT_END trace here to
-			 * indicate completion.
-			 */
-			KBASE_KTRACE_ADD_CSF_KCPU(kctx->kbdev,
-				KCPU_FENCE_WAIT_END, kcpu_queue,
-				fence->context, fence->seqno);
+
+			KBASE_KTRACE_ADD_CSF_KCPU(kctx->kbdev, KCPU_FENCE_WAIT_END, kcpu_queue,
+						  fence->context, fence->seqno);
+		} else {
+			KBASE_KTRACE_ADD_CSF_KCPU(kctx->kbdev, KCPU_FENCE_WAIT_END, kcpu_queue,
+						  fence->context, fence->seqno);
 		}
 	}
 
