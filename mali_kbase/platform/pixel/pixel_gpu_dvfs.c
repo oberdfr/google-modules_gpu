@@ -583,9 +583,12 @@ static int validate_and_parse_dvfs_table(struct kbase_device *kbdev, int dvfs_ta
 	int c;
 	int level_count[GPU_DVFS_CLK_COUNT];
 	struct dvfs_rate_volt vf_map[GPU_DVFS_CLK_COUNT][16];
+	int scaling_level_max_ect = -1, scaling_level_min_ect = -1;
+	int scaling_freq_max_ect = INT_MAX;
+	int scaling_freq_min_ect = 0;
 #endif /* CONFIG_CAL_IF */
 
-	int scaling_level_max = -1, scaling_level_min = -1;
+	int scaling_level_max_devicetree = -1, scaling_level_min_devicetree = -1;
 	int scaling_freq_max_devicetree = INT_MAX;
 	int scaling_freq_min_devicetree = 0;
 	int scaling_freq_min_compute = 0;
@@ -631,6 +634,12 @@ static int validate_and_parse_dvfs_table(struct kbase_device *kbdev, int dvfs_ta
 	of_property_read_u32(np, "gpu_dvfs_min_freq", &scaling_freq_min_devicetree);
 	of_property_read_u32(np, "gpu_dvfs_min_freq_compute",
 			     &scaling_freq_min_compute);
+
+#if IS_ENABLED(CONFIG_CAL_IF)
+	scaling_freq_max_ect = cal_dfs_get_max_freq(pc->dvfs.clks[GPU_DVFS_CLK_SHADERS].cal_id);
+	scaling_freq_min_ect = cal_dfs_get_min_freq(pc->dvfs.clks[GPU_DVFS_CLK_SHADERS].cal_id);
+#endif /* CONFIG_CAL_IF */
+
 	/* Check if there is a voltage mapping for each frequency in the ECT table */
 	for (i = 0; i < dvfs_table_row_num; i++) {
 		idx = i * dvfs_table_col_num;
@@ -674,8 +683,8 @@ static int validate_and_parse_dvfs_table(struct kbase_device *kbdev, int dvfs_ta
 		gpu_dvfs_table[i].qos.cpu1_min = of_data_int_array[idx + 8];
 		gpu_dvfs_table[i].qos.cpu2_max = of_data_int_array[idx + 9];
 #if MALI_USE_CSF
-		gpu_dvfs_table[i].mcu_util_max = of_data_int_array[idx + 10];
-		gpu_dvfs_table[i].mcu_util_min = of_data_int_array[idx + 11];
+		gpu_dvfs_table[i].mcu_util_min = of_data_int_array[idx + 10];
+		gpu_dvfs_table[i].mcu_util_max = of_data_int_array[idx + 11];
 #endif
 
 		/* Handle case where CPU cluster 2 has no limit set */
@@ -684,20 +693,34 @@ static int validate_and_parse_dvfs_table(struct kbase_device *kbdev, int dvfs_ta
 
 		/* Update level locks */
 		if (gpu_dvfs_table[i].clk[GPU_DVFS_CLK_SHADERS] <= scaling_freq_max_devicetree)
-			if (scaling_level_max == -1)
-				scaling_level_max = i;
+			if (scaling_level_max_devicetree == -1)
+				scaling_level_max_devicetree = i;
 
 		if (gpu_dvfs_table[i].clk[GPU_DVFS_CLK_SHADERS] >= scaling_freq_min_devicetree)
-			scaling_level_min = i;
+			scaling_level_min_devicetree = i;
 
 		if (gpu_dvfs_table[i].clk[GPU_DVFS_CLK_SHADERS] >= scaling_freq_min_compute)
 			pc->dvfs.level_scaling_compute_min = i;
+
+#if IS_ENABLED(CONFIG_CAL_IF)
+		if (gpu_dvfs_table[i].clk[GPU_DVFS_CLK_SHADERS] <= scaling_freq_max_ect)
+			if (scaling_level_max_ect == -1)
+				scaling_level_max_ect = i;
+
+		if (gpu_dvfs_table[i].clk[GPU_DVFS_CLK_SHADERS] >= scaling_freq_min_ect)
+			scaling_level_min_ect = i;
+#endif /* CONFIG_CAL_IF */
 	}
 
 	pc->dvfs.level_max = 0;
 	pc->dvfs.level_min = dvfs_table_row_num - 1;
 	gpu_dvfs_update_level_lock(kbdev, GPU_DVFS_LEVEL_LOCK_DEVICETREE,
-		scaling_level_min, scaling_level_max);
+		scaling_level_min_devicetree, scaling_level_max_devicetree);
+
+#if IS_ENABLED(CONFIG_CAL_IF)
+	gpu_dvfs_update_level_lock(kbdev, GPU_DVFS_LEVEL_LOCK_ECT,
+		scaling_level_min_ect, scaling_level_max_ect);
+#endif /* CONFIG_CAL_IF */
 
 	return dvfs_table_row_num;
 

@@ -136,8 +136,10 @@ gpu_dvfs_governor_quickstep_use_mcu_util(struct kbase_device *kbdev,
 
 		/* Check if we've resisted downclocking long enough */
 		if (pc->dvfs.governor.delay <= 0) {
-			dev_dbg(kbdev->dev, "DVFS -1: %d -> %d (u: %d / %d)\n",
-				level, level + 1, util, tbl[level].util_min);
+			dev_dbg(kbdev->dev,
+				"DVFS -1: %d -> %d (util: %d / %d mcu: %d / %d)\n",
+				level, level + 1, util, tbl[level].util_min,
+				mcu_util, tbl[level].mcu_util_min);
 
 			/* Time to clock down */
 			level++;
