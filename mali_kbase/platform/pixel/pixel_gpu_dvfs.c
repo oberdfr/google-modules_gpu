@@ -15,6 +15,7 @@
 #if IS_ENABLED(CONFIG_CAL_IF)
 #include <soc/google/cal-if.h>
 #endif
+#include <soc/google/gs_tmu_v3.h>
 
 /* Mali core includes */
 #include <mali_kbase.h>
@@ -389,7 +390,12 @@ void gpu_dvfs_disable_updates(struct kbase_device *kbdev) {
 	struct pixel_context *pc = kbdev->platform_context;
 
 	mutex_lock(&pc->dvfs.lock);
-	pc->dvfs.updates_enabled = false;
+	/* TODO (289541794): guard all calls to gpu_dvfs_[en,dis]able_updates with PM state machine */
+	if (pc->dvfs.updates_enabled) {
+		pc->dvfs.updates_enabled = false;
+		if (set_acpm_tj_power_status(TZ_GPU, false))
+			dev_err(kbdev->dev, "Failed to set Tj power off status\n");
+	}
 	mutex_unlock(&pc->dvfs.lock);
 
 	flush_workqueue(pc->dvfs.control_wq);
@@ -407,7 +413,11 @@ void gpu_dvfs_enable_updates(struct kbase_device *kbdev) {
 	struct pixel_context *pc = kbdev->platform_context;
 
 	mutex_lock(&pc->dvfs.lock);
-	pc->dvfs.updates_enabled = true;
+	if (!pc->dvfs.updates_enabled) {
+		pc->dvfs.updates_enabled = true;
+		if (set_acpm_tj_power_status(TZ_GPU, true))
+			dev_err(kbdev->dev, "Failed to set Tj power on status\n");
+	}
 	mutex_unlock(&pc->dvfs.lock);
 }
 #endif
