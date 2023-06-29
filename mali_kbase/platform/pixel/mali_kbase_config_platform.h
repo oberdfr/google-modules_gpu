@@ -106,7 +106,7 @@ extern struct protected_mode_ops pixel_protected_ops;
 #include "pixel_gpu_uevent.h"
 
 /* All port specific fields go here */
-#define OF_DATA_NUM_MAX 160
+#define OF_DATA_NUM_MAX 200
 #define CPU_FREQ_MAX INT_MAX
 
 enum gpu_power_state {

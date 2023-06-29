@@ -104,6 +104,7 @@ endif
 endif
 ifeq ($(CONFIG_SOC_ZUMA),y)
     ccflags-y += -DCONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL
+    ccflags-y += -DCONFIG_MALI_PIXEL_GPU_SLEEP
 endif
 else
     MALI_JIT_PRESSURE_LIMIT_BASE ?= 1
