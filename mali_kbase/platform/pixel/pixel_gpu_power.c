@@ -38,12 +38,6 @@
 #error "s2mpu device runtime PM control is not expected to be enabled with host-side shader rail control"
 #endif
 
-#ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
-/* Auto-suspend timeout for CORES domain */
-#define CORES_SUSPEND_HYSTERISIS_TIME_MS 20
-/* Auto-suspend timeout for TOP domain */
-#define TOP_SUSPEND_HYSTERISIS_TIME_MS 40
-#endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
 /*
  * GPU_PM_DOMAIN_NAMES - names for GPU power domains.
  *
@@ -505,9 +499,9 @@ static void gpu_pm_callback_power_suspend(struct kbase_device *kbdev)
  *
  * For GPU Sleep mode, setup autosuspend delay for mali device. The timer is triggered from
  * power_runtime_gpu_idle_callback. As the timer expires power_off_callback is triggered.
- * This autosuspend delay is set to CORES_SUSPEND_HYSTERISIS_TIME_MS, as only CORES domain is
+ * This autosuspend delay is set to pm.cores_suspend_hysteresis_time_ms, as only CORES domain is
  * powered-off as soon as power_off_callback is called.
- * TOP domain will be powered-off after additionally TOP_SUSPEND_HYSTERISIS_TIME_MS timer expires,
+ * TOP domain will be powered-off after additionally pm.top_suspend_hysteresis_time_ms timer expires,
  * which is triggered from the power_off_callback.
  *
  * Return: Returns 0 on success, or an error code on failure.
@@ -519,12 +513,12 @@ static int gpu_pm_callback_power_runtime_init(struct kbase_device *kbdev)
 	dev_dbg(kbdev->dev, "%s\n", __func__);
 
 #ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
-	pm_runtime_set_autosuspend_delay(kbdev->dev, CORES_SUSPEND_HYSTERISIS_TIME_MS);
+	pm_runtime_set_autosuspend_delay(kbdev->dev, pc->pm.cores_suspend_hysteresis_time_ms);
 	pm_runtime_use_autosuspend(kbdev->dev);
 	pm_runtime_set_active(kbdev->dev);
 	pm_runtime_enable(kbdev->dev);
 	pm_runtime_set_autosuspend_delay(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP],
-			TOP_SUSPEND_HYSTERISIS_TIME_MS);
+			pc->pm.top_suspend_hysteresis_time_ms);
 	pm_runtime_use_autosuspend(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
 #endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
 	if (!pm_runtime_enabled(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]) ||
@@ -923,6 +917,43 @@ int gpu_pm_init(struct kbase_device *kbdev)
 		ret = -EINVAL;
 		goto error;
 	}
+
+#if MALI_USE_CSF
+	if (of_property_read_u32(np, "firmware_idle_hysteresis_time_ms",
+				&pc->pm.firmware_idle_hysteresis_time_ms)) {
+		dev_err(kbdev->dev, "firmware_idle_hysteresis_time_ms not set in DT\n");
+		ret = -EINVAL;
+		goto error;
+	}
+
+#ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
+	if (of_property_read_u32(np, "firmware_idle_hysteresis_gpu_sleep_scaler",
+				&pc->pm.firmware_idle_hysteresis_gpu_sleep_scaler)) {
+		dev_err(kbdev->dev, "firmware_idle_hysteresis_gpu_sleep_scaler not set in DT\n");
+		ret = -EINVAL;
+		goto error;
+	}
+
+	if (of_property_read_u32(np, "cores_suspend_hysteresis_time_ms",
+				&pc->pm.cores_suspend_hysteresis_time_ms)) {
+		dev_err(kbdev->dev, "cores_suspend_hysteresis_time_ms not set in DT\n");
+		ret = -EINVAL;
+		goto error;
+	}
+
+	if (of_property_read_u32(np, "top_suspend_hysteresis_time_ms",
+				&pc->pm.top_suspend_hysteresis_time_ms)) {
+		dev_err(kbdev->dev, "top_suspend_hysteresis_time_ms not set in DT\n");
+		ret = -EINVAL;
+		goto error;
+	}
+#endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
+
+	kbdev->csf.gpu_idle_hysteresis_ms = pc->pm.firmware_idle_hysteresis_time_ms;
+#ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
+	kbdev->csf.gpu_idle_hysteresis_ms /= pc->pm.firmware_idle_hysteresis_gpu_sleep_scaler;
+#endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
+#endif /* MALI_USE_CSF */
 
 #if IS_ENABLED(CONFIG_EXYNOS_PMU_IF)
 	pc->pm.domain = exynos_pd_lookup_name(g3d_power_domain_name);
