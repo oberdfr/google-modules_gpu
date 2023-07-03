@@ -1080,11 +1080,6 @@ int kbase_csf_firmware_early_init(struct kbase_device *kbdev)
 
 int kbase_csf_firmware_late_init(struct kbase_device *kbdev)
 {
-	kbdev->csf.gpu_idle_hysteresis_ms = FIRMWARE_IDLE_HYSTERESIS_TIME_MS;
-#ifdef KBASE_PM_RUNTIME
-	if (kbase_pm_gpu_sleep_allowed(kbdev))
-		kbdev->csf.gpu_idle_hysteresis_ms /= FIRMWARE_IDLE_HYSTERESIS_GPU_SLEEP_SCALER;
-#endif
 	WARN_ON(!kbdev->csf.gpu_idle_hysteresis_ms);
 	kbdev->csf.gpu_idle_dur_count =
 		convert_dur_to_idle_count(kbdev, kbdev->csf.gpu_idle_hysteresis_ms);
