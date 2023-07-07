@@ -341,6 +341,8 @@ static const struct kbase_device_init dev_init[] = {
 	{ kbase_gpuprops_populate_user_buffer, kbase_gpuprops_free_user_buffer,
 	  "GPU property population failed" },
 	{ kbase_device_late_init, kbase_device_late_term, "Late device initialization failed" },
+	{ kbase_pm_apc_init, kbase_pm_apc_term,
+	  "Asynchronous power control initialization failed" },
 };
 
 static void kbase_device_term_partial(struct kbase_device *kbdev,

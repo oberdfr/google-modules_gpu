@@ -281,6 +281,8 @@ static const struct kbase_device_init dev_init[] = {
 	  "GPU property population failed" },
 	{ NULL, kbase_dummy_job_wa_cleanup, NULL },
 	{ kbase_device_late_init, kbase_device_late_term, "Late device initialization failed" },
+	{ kbase_pm_apc_init, kbase_pm_apc_term,
+	  "Asynchronous power control initialization failed" },
 };
 
 static void kbase_device_term_partial(struct kbase_device *kbdev,
@@ -294,7 +296,6 @@ static void kbase_device_term_partial(struct kbase_device *kbdev,
 
 void kbase_device_term(struct kbase_device *kbdev)
 {
-	kbase_pm_apc_term(kbdev);
 	kbase_device_term_partial(kbdev, ARRAY_SIZE(dev_init));
 	kbasep_js_devdata_halt(kbdev);
 	kbase_mem_halt(kbdev);
@@ -328,10 +329,6 @@ int kbase_device_init(struct kbase_device *kbdev)
 
 	err = kbase_create_realtime_thread(kbdev,
 		kthread_worker_fn, &kbdev->job_done_worker, "mali_jd_thread");
-	if (err)
-		return err;
-
-	err = kbase_pm_apc_init(kbdev);
 	if (err)
 		return err;
 
