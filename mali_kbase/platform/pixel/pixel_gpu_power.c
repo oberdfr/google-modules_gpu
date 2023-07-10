@@ -32,8 +32,6 @@
 #include "pixel_gpu_trace.h"
 #include <trace/events/power.h>
 
-#include <soc/google/gs_tmu_v3.h>
-
 #if IS_ENABLED(CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL) && IS_ENABLED(CONFIG_MALI_HOST_CONTROLS_SC_RAILS)
 #error "s2mpu device runtime PM control is not expected to be enabled with host-side shader rail control"
 #endif
@@ -278,8 +276,7 @@ static int gpu_pm_power_on_top_nolock(struct kbase_device *kbdev)
 	ret = (pc->pm.state == GPU_POWER_LEVEL_OFF);
 
 	gpu_dvfs_enable_updates(kbdev);
-	if (set_acpm_tj_power_status(TZ_GPU, true))
-		dev_err(kbdev->dev, "Failed to set Tj power on status\n");
+
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 	kbase_pm_metrics_start(kbdev);
 	gpu_dvfs_event_power_on(kbdev);
@@ -347,6 +344,7 @@ static void gpu_pm_power_off_top_nolock(struct kbase_device *kbdev)
 #endif
 
 	if (pc->pm.state == GPU_POWER_LEVEL_STACKS) {
+		gpu_dvfs_disable_updates(kbdev);
 #ifdef CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL
 		pm_runtime_put_sync(kbdev->s2mpu_dev);
 #endif /* CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL */
@@ -360,11 +358,6 @@ static void gpu_pm_power_off_top_nolock(struct kbase_device *kbdev)
 			dev_err(kbdev->dev, "Couldn't disable protected mode before GPU power-off");
 		}
 #endif
-
-		gpu_dvfs_disable_updates(kbdev);
-
-		if (set_acpm_tj_power_status(TZ_GPU, false))
-			dev_err(kbdev->dev, "Failed to set Tj power off status\n");
 
 #ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
 		if (1) {
@@ -623,6 +616,7 @@ static void gpu_pm_power_on_cores(struct kbase_device *kbdev) {
 		pm_runtime_get_sync(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES]);
 		pc->pm.state = GPU_POWER_LEVEL_STACKS;
 
+		gpu_dvfs_enable_updates(kbdev);
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 		gpu_dvfs_event_power_on(kbdev);
 #endif
@@ -648,6 +642,7 @@ static void gpu_pm_power_off_cores(struct kbase_device *kbdev) {
 	gpu_pm_rail_state_start_transition_lock(pc);
 
 	if (pc->pm.state == GPU_POWER_LEVEL_STACKS && pc->pm.ifpo_enabled) {
+		gpu_dvfs_disable_updates(kbdev);
 		pm_runtime_put_sync(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES]);
 		pc->pm.state = GPU_POWER_LEVEL_GLOBAL;
 
