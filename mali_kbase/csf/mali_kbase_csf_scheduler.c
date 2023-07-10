@@ -5662,8 +5662,10 @@ static void schedule_on_tock(struct kthread_work *work)
 		return;
 
 	mutex_lock(&scheduler->lock);
-	if (can_skip_scheduling(kbdev))
+	if (can_skip_scheduling(kbdev)) {
+		atomic_set(&scheduler->pending_tock_work, false);
 		goto exit_no_schedule_unlock;
+	}
 
 	WARN_ON(!(scheduler->state == SCHED_INACTIVE));
 	scheduler->state = SCHED_BUSY;
