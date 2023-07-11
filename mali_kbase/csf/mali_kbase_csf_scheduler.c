@@ -6712,8 +6712,13 @@ static void check_group_sync_update_worker(struct kthread_work *work)
 	/* If scheduler is in sleep or suspended state, re-activate it
 	 * to serve on-slot CSGs blocked on CQS which has been signaled.
 	 */
-	if (!sync_updated && (scheduler->state == SCHED_SLEEPING))
+	if (!sync_updated && (scheduler->state == SCHED_SLEEPING)) {
+		/* Wait for sleep transition to complete to ensure the
+		 * CS_STATUS_WAIT registers are updated by the MCU.
+		 */
+		kbase_pm_wait_for_desired_state(kbdev);
 		check_sync_update_in_sleep_mode(kbdev);
+	}
 
 #ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
 	/* Check if the sync update happened for a blocked on-slot group,
