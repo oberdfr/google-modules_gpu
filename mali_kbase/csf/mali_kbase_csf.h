@@ -48,19 +48,7 @@
 
 #define FIRMWARE_PING_INTERVAL_MS (12000 * KBASE_TIMEOUT_MULTIPLIER) /* 12 seconds */
 
-/* Setting lower value for this hysteresis timer while GPU Sleep mode is enabled.
- * This is to achieve power benefits while inter-frame idle.
- */
-#ifndef CONFIG_MALI_PIXEL_GPU_SLEEP
-#define FIRMWARE_IDLE_HYSTERESIS_TIME_MS (60)
-#else
-#define FIRMWARE_IDLE_HYSTERESIS_TIME_MS (5)
-#endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
-
 #define MALI_HOST_CONTROLS_SC_RAILS_IDLE_TIMER_US (600)
-
-/* Idle hysteresis time can be scaled down when GPU sleep feature is used */
-#define FIRMWARE_IDLE_HYSTERESIS_GPU_SLEEP_SCALER (5)
 
 /**
  * kbase_csf_ctx_init - Initialize the CSF interface for a GPU address space.
