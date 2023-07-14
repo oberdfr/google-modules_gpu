@@ -259,6 +259,7 @@ include $(KDIR)/../private/google-modules/soc/gs/Makefile.include
 # KBUILD_EXTRA_SYMBOLS to prevent warnings about unknown functions
 #
 EXTRA_SYMBOLS += $(OUT_DIR)/../private/google-modules/gpu/mali_pixel/Module.symvers
+EXTRA_SYMBOLS += $(OUT_DIR)/../private/google-modules/power/mitigation/Module.symvers
 
 # The following were added to align with W=1 in scripts/Makefile.extrawarn
 # from the Linux source tree

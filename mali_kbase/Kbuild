@@ -139,6 +139,9 @@ ccflags-y += \
     -DMALI_INCREMENTAL_RENDERING_JM=$(MALI_INCREMENTAL_RENDERING_JM) \
     -DMALI_PLATFORM_DIR=$(MALI_PLATFORM_DIR)
 
+subdir-ccflags-y += \
+		-I$(KERNEL_SRC)/../private/google-modules/power/mitigation
+
 ifeq ($(KBUILD_EXTMOD),)
 # in-tree
     ccflags-y +=-DMALI_KBASE_PLATFORM_PATH=../../$(src)/platform/$(CONFIG_MALI_PLATFORM_NAME)
