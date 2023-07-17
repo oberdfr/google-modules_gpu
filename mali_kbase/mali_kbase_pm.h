@@ -274,6 +274,7 @@ int kbase_pm_apc_init(struct kbase_device *kbdev);
  */
 void kbase_pm_apc_term(struct kbase_device *kbdev);
 
+#if !MALI_USE_CSF
 /**
  * kbase_pm_apc_request - Handle APC power on request
  * @kbdev: The kbase device structure for the device (must be a valid pointer)
@@ -291,6 +292,7 @@ void kbase_pm_apc_term(struct kbase_device *kbdev);
  * and will result in no APC work being queued.
  */
 void kbase_pm_apc_request(struct kbase_device *kbdev, u32 dur_usec);
+#endif
 
 /*
  * Print debug message indicating power state of GPU.
