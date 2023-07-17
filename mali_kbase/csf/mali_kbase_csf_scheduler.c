@@ -6712,8 +6712,13 @@ static void check_group_sync_update_worker(struct kthread_work *work)
 	/* If scheduler is in sleep or suspended state, re-activate it
 	 * to serve on-slot CSGs blocked on CQS which has been signaled.
 	 */
-	if (!sync_updated && (scheduler->state == SCHED_SLEEPING))
+	if (!sync_updated && (scheduler->state == SCHED_SLEEPING)) {
+		/* Wait for sleep transition to complete to ensure the
+		 * CS_STATUS_WAIT registers are updated by the MCU.
+		 */
+		kbase_pm_wait_for_desired_state(kbdev);
 		check_sync_update_in_sleep_mode(kbdev);
+	}
 
 #ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
 	/* Check if the sync update happened for a blocked on-slot group,
@@ -6761,7 +6766,7 @@ int kbase_csf_scheduler_context_init(struct kbase_context *kctx)
 
 	err = kbase_create_realtime_thread(kctx->kbdev, kthread_worker_fn,
 					   &kctx->csf.sched.sync_update_worker,
-					   "mali_kbase_csf_sync_update");
+					   "csf_sync_update");
 	if (err) {
 		dev_err(kctx->kbdev->dev,
 			"Failed to initialize scheduler context kworker");
