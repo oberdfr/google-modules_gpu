@@ -1258,12 +1258,18 @@ struct kbase_device {
 
 	struct {
 		struct kthread_worker worker;
+#if !MALI_USE_CSF
+		// APC ioctl for core domain
 		struct kthread_work power_on_work;
 		struct kthread_work power_off_work;
 		ktime_t end_ts;
 		struct hrtimer timer;
 		bool pending;
 		struct mutex lock;
+#else
+		// sysfs power hint for CSF scheduler
+		struct kthread_work wakeup_csf_scheduler_work;
+#endif
 	} apc;
 
 	struct rb_root process_root;
