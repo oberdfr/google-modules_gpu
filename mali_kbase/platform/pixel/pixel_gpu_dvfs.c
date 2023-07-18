@@ -15,6 +15,7 @@
 #if IS_ENABLED(CONFIG_CAL_IF)
 #include <soc/google/cal-if.h>
 #endif
+#include <soc/google/gs_tmu_v3.h>
 
 /* Mali core includes */
 #include <mali_kbase.h>
@@ -389,7 +390,12 @@ void gpu_dvfs_disable_updates(struct kbase_device *kbdev) {
 	struct pixel_context *pc = kbdev->platform_context;
 
 	mutex_lock(&pc->dvfs.lock);
-	pc->dvfs.updates_enabled = false;
+	/* TODO (289541794): guard all calls to gpu_dvfs_[en,dis]able_updates with PM state machine */
+	if (pc->dvfs.updates_enabled) {
+		pc->dvfs.updates_enabled = false;
+		if (set_acpm_tj_power_status(TZ_GPU, false))
+			dev_err(kbdev->dev, "Failed to set Tj power off status\n");
+	}
 	mutex_unlock(&pc->dvfs.lock);
 
 	flush_workqueue(pc->dvfs.control_wq);
@@ -407,7 +413,11 @@ void gpu_dvfs_enable_updates(struct kbase_device *kbdev) {
 	struct pixel_context *pc = kbdev->platform_context;
 
 	mutex_lock(&pc->dvfs.lock);
-	pc->dvfs.updates_enabled = true;
+	if (!pc->dvfs.updates_enabled) {
+		pc->dvfs.updates_enabled = true;
+		if (set_acpm_tj_power_status(TZ_GPU, true))
+			dev_err(kbdev->dev, "Failed to set Tj power on status\n");
+	}
 	mutex_unlock(&pc->dvfs.lock);
 }
 #endif
@@ -593,6 +603,8 @@ static int validate_and_parse_dvfs_table(struct kbase_device *kbdev, int dvfs_ta
 	int scaling_freq_min_devicetree = 0;
 	int scaling_freq_min_compute = 0;
 
+	int scaling_freq_hard_max = INT_MAX;
+
 	struct device_node *np = kbdev->dev->of_node;
 	struct pixel_context *pc = kbdev->platform_context;
 
@@ -635,9 +647,14 @@ static int validate_and_parse_dvfs_table(struct kbase_device *kbdev, int dvfs_ta
 	of_property_read_u32(np, "gpu_dvfs_min_freq_compute",
 			     &scaling_freq_min_compute);
 
+	scaling_freq_hard_max = scaling_freq_max_devicetree;
+
 #if IS_ENABLED(CONFIG_CAL_IF)
 	scaling_freq_max_ect = cal_dfs_get_max_freq(pc->dvfs.clks[GPU_DVFS_CLK_SHADERS].cal_id);
 	scaling_freq_min_ect = cal_dfs_get_min_freq(pc->dvfs.clks[GPU_DVFS_CLK_SHADERS].cal_id);
+
+	if(scaling_freq_hard_max == INT_MAX)
+		scaling_freq_hard_max = scaling_freq_max_ect;
 #endif /* CONFIG_CAL_IF */
 
 	/* Check if there is a voltage mapping for each frequency in the ECT table */
@@ -659,9 +676,18 @@ static int validate_and_parse_dvfs_table(struct kbase_device *kbdev, int dvfs_ta
 	}
 
 	/* Process DVFS table data from device tree and store it in OPP table */
-	for (i = 0; i < dvfs_table_row_num; i++) {
-		idx = i * dvfs_table_col_num;
-
+	for (i = 0, idx = 0; i < dvfs_table_row_num; i++) {
+#ifdef CONFIG_MALI_PIXEL_GPU_HARD_FMAX
+		/** Skip storing the OPP above scaling_freq_hard_max value
+		* Decrease the number of rows and row index from the dvfs table
+		*/
+		if(of_data_int_array[idx + 1] > scaling_freq_hard_max) {
+			idx += dvfs_table_col_num;
+			i--;
+			dvfs_table_row_num--;
+			continue;
+		}
+#endif /* CONFIG_MALI_PIXEL_GPU_HARD_FMAX */
 		/* Read raw data from device tree table */
 		gpu_dvfs_table[i].clk[GPU_DVFS_CLK_TOP_LEVEL] = of_data_int_array[idx + 0];
 		gpu_dvfs_table[i].clk[GPU_DVFS_CLK_SHADERS]   = of_data_int_array[idx + 1];
@@ -710,6 +736,8 @@ static int validate_and_parse_dvfs_table(struct kbase_device *kbdev, int dvfs_ta
 		if (gpu_dvfs_table[i].clk[GPU_DVFS_CLK_SHADERS] >= scaling_freq_min_ect)
 			scaling_level_min_ect = i;
 #endif /* CONFIG_CAL_IF */
+
+		idx += dvfs_table_col_num;
 	}
 
 	pc->dvfs.level_max = 0;

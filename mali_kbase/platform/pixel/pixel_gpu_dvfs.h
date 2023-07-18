@@ -307,12 +307,20 @@ void gpu_tmu_term(struct kbase_device *kbdev);
  * restrictive than an earlier one, the value from the later lock is selected.
  */
 enum gpu_dvfs_level_lock_type {
+#if IS_ENABLED(CONFIG_CAL_IF)
+	/**
+	 * &GPU_DVFS_LEVEL_LOCK_ECT: ECT lock
+	 *
+	 * This lock is based on Fmax and Fmin obtained from ECT table of the chip.
+	 */
+	GPU_DVFS_LEVEL_LOCK_ECT,
+#endif /* CONFIG_CAL_IF */
 	/**
 	 * &GPU_DVFS_LEVEL_LOCK_DEVICETREE: Devicetree lock
 	 *
 	 * This lock is used to enforce scaling limits set as part of the GPU device tree entry.
 	 */
-	GPU_DVFS_LEVEL_LOCK_DEVICETREE = 0,
+	GPU_DVFS_LEVEL_LOCK_DEVICETREE,
 	/**
 	 * &GPU_DVFS_LEVEL_LOCK_COMPUTE: Compute lock
 	 *
@@ -353,14 +361,6 @@ enum gpu_dvfs_level_lock_type {
 	 */
 	GPU_DVFS_LEVEL_LOCK_BCL,
 #endif /* CONFIG_GOOGLE_BCL */
-#if IS_ENABLED(CONFIG_CAL_IF)
-	/**
-	 * &GPU_DVFS_LEVEL_LOCK_ECT: ECT lock
-	 *
-	 * This lock is based on Fmax and Fmin obtained from ECT table of the chip.
-	 */
-        GPU_DVFS_LEVEL_LOCK_ECT,
-#endif /* CONFIG_CAL_IF */
 	/* Insert new level locks here */
 	GPU_DVFS_LEVEL_LOCK_COUNT,
 };
