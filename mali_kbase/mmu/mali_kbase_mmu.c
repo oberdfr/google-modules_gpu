@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2010-2022 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2010-2023 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -146,7 +146,7 @@ static void mmu_invalidate(struct kbase_device *kbdev, struct kbase_context *kct
 
 	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
 
-	if (kbdev->pm.backend.gpu_powered && (!kctx || kctx->as_nr >= 0)) {
+	if (kbdev->pm.backend.gpu_ready && (!kctx || kctx->as_nr >= 0)) {
 		as_nr = kctx ? kctx->as_nr : as_nr;
 		err = kbase_mmu_hw_do_unlock(kbdev, &kbdev->as[as_nr], op_param);
 	}
@@ -173,7 +173,7 @@ static void mmu_flush_invalidate_as(struct kbase_device *kbdev, struct kbase_as 
 	mutex_lock(&kbdev->mmu_hw_mutex);
 	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
 
-	if (kbdev->pm.backend.gpu_powered)
+	if (kbdev->pm.backend.gpu_ready)
 		err = kbase_mmu_hw_do_flush_locked(kbdev, as, op_param);
 
 	if (err) {
@@ -270,7 +270,7 @@ static void mmu_flush_invalidate_on_gpu_ctrl(struct kbase_device *kbdev, struct 
 	mutex_lock(&kbdev->mmu_hw_mutex);
 	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
 
-	if (kbdev->pm.backend.gpu_powered && (!kctx || kctx->as_nr >= 0)) {
+	if (kbdev->pm.backend.gpu_ready && (!kctx || kctx->as_nr >= 0)) {
 		as_nr = kctx ? kctx->as_nr : as_nr;
 		err = kbase_mmu_hw_do_flush_on_gpu_ctrl(kbdev, &kbdev->as[as_nr],
 							op_param);
@@ -1331,6 +1331,7 @@ page_fault_retry:
 		kbase_gpu_vm_unlock(kctx);
 	} else {
 		int ret = -ENOMEM;
+		const u8 group_id = region->gpu_alloc->group_id;
 
 		kbase_gpu_vm_unlock(kctx);
 
@@ -1342,23 +1343,19 @@ page_fault_retry:
 			if (grow_2mb_pool) {
 				/* Round page requirement up to nearest 2 MB */
 				struct kbase_mem_pool *const lp_mem_pool =
-					&kctx->mem_pools.large[
-					region->gpu_alloc->group_id];
+					&kctx->mem_pools.large[group_id];
 
 				pages_to_grow = (pages_to_grow +
 					((1 << lp_mem_pool->order) - 1))
 						>> lp_mem_pool->order;
 
-				ret = kbase_mem_pool_grow(lp_mem_pool,
-					pages_to_grow);
+				ret = kbase_mem_pool_grow(lp_mem_pool, pages_to_grow, kctx->task);
 			} else {
 #endif
 				struct kbase_mem_pool *const mem_pool =
-					&kctx->mem_pools.small[
-					region->gpu_alloc->group_id];
+					&kctx->mem_pools.small[group_id];
 
-				ret = kbase_mem_pool_grow(mem_pool,
-					pages_to_grow);
+				ret = kbase_mem_pool_grow(mem_pool, pages_to_grow, kctx->task);
 #ifdef CONFIG_MALI_2MB_ALLOC
 			}
 #endif
@@ -1766,10 +1763,8 @@ int kbase_mmu_insert_single_page(struct kbase_context *kctx, u64 vpfn,
 			 * the page walk to succeed
 			 */
 			rt_mutex_unlock(&kctx->mmu.mmu_lock);
-			err = kbase_mem_pool_grow(
-				&kbdev->mem_pools.small[
-					kctx->mmu.group_id],
-				MIDGARD_MMU_BOTTOMLEVEL);
+			err = kbase_mem_pool_grow(&kbdev->mem_pools.small[kctx->mmu.group_id],
+						  MIDGARD_MMU_BOTTOMLEVEL, kctx->task);
 			rt_mutex_lock(&kctx->mmu.mmu_lock);
 		} while (!err);
 		if (err) {
@@ -1930,9 +1925,8 @@ int kbase_mmu_insert_pages_no_flush(struct kbase_device *kbdev, struct kbase_mmu
 			 * the page walk to succeed
 			 */
 			rt_mutex_unlock(&mmut->mmu_lock);
-			err = kbase_mem_pool_grow(
-				&kbdev->mem_pools.small[mmut->group_id],
-				cur_level);
+			err = kbase_mem_pool_grow(&kbdev->mem_pools.small[mmut->group_id],
+						  cur_level, mmut->kctx ? mmut->kctx->task : NULL);
 			rt_mutex_lock(&mmut->mmu_lock);
 		} while (!err);
 
@@ -2067,6 +2061,7 @@ int kbase_mmu_insert_pages(struct kbase_device *kbdev,
 
 KBASE_EXPORT_TEST_API(kbase_mmu_insert_pages);
 
+#if !MALI_USE_CSF
 /**
  * kbase_mmu_flush_noretain() - Flush and invalidate the GPU caches
  * without retaining the kbase context.
@@ -2120,6 +2115,7 @@ static void kbase_mmu_flush_noretain(struct kbase_context *kctx, u64 vpfn, size_
 			kbase_reset_gpu_locked(kbdev);
 	}
 }
+#endif
 
 void kbase_mmu_update(struct kbase_device *kbdev,
 		struct kbase_mmu_table *mmut,
@@ -2141,6 +2137,88 @@ void kbase_mmu_disable_as(struct kbase_device *kbdev, int as_nr)
 	kbdev->mmu_mode->disable_as(kbdev, as_nr);
 }
 
+#if MALI_USE_CSF
+void kbase_mmu_disable(struct kbase_context *kctx)
+{
+	/* Calls to this function are inherently asynchronous, with respect to
+	 * MMU operations.
+	 */
+	const enum kbase_caller_mmu_sync_info mmu_sync_info = CALLER_MMU_ASYNC;
+	struct kbase_device *kbdev = kctx->kbdev;
+	struct kbase_mmu_hw_op_param op_param = { 0 };
+	int lock_err, flush_err;
+
+	/* ASSERT that the context has a valid as_nr, which is only the case
+	 * when it's scheduled in.
+	 *
+	 * as_nr won't change because the caller has the hwaccess_lock
+	 */
+	KBASE_DEBUG_ASSERT(kctx->as_nr != KBASEP_AS_NR_INVALID);
+
+	lockdep_assert_held(&kctx->kbdev->hwaccess_lock);
+	lockdep_assert_held(&kctx->kbdev->mmu_hw_mutex);
+
+	op_param.vpfn = 0;
+	op_param.nr = ~0;
+	op_param.op = KBASE_MMU_OP_FLUSH_MEM;
+	op_param.kctx_id = kctx->id;
+	op_param.mmu_sync_info = mmu_sync_info;
+
+#if MALI_USE_CSF
+	/* 0xF value used to prevent skipping of any levels when flushing */
+	if (mmu_flush_cache_on_gpu_ctrl(kbdev))
+		op_param.flush_skip_levels = pgd_level_to_skip_flush(0xF);
+#endif
+
+	/* lock MMU to prevent existing jobs on GPU from executing while the AS is
+	 * not yet disabled
+	 */
+	lock_err = kbase_mmu_hw_do_lock(kbdev, &kbdev->as[kctx->as_nr], &op_param);
+	if (lock_err)
+		dev_err(kbdev->dev, "Failed to lock AS %d for ctx %d_%d", kctx->as_nr, kctx->tgid,
+			kctx->id);
+
+	/* Issue the flush command only when L2 cache is in stable power on state.
+	 * Any other state for L2 cache implies that shader cores are powered off,
+	 * which in turn implies there is no execution happening on the GPU.
+	 */
+	if (kbdev->pm.backend.l2_state == KBASE_L2_ON) {
+		flush_err = kbase_gpu_cache_flush_and_busy_wait(kbdev,
+								GPU_COMMAND_CACHE_CLN_INV_L2_LSC);
+		if (flush_err)
+			dev_err(kbdev->dev,
+				"Failed to flush GPU cache when disabling AS %d for ctx %d_%d",
+				kctx->as_nr, kctx->tgid, kctx->id);
+	}
+	kbdev->mmu_mode->disable_as(kbdev, kctx->as_nr);
+
+	if (!lock_err) {
+		/* unlock the MMU to allow it to resume */
+		lock_err =
+			kbase_mmu_hw_do_unlock_no_addr(kbdev, &kbdev->as[kctx->as_nr], &op_param);
+		if (lock_err)
+			dev_err(kbdev->dev, "Failed to unlock AS %d for ctx %d_%d", kctx->as_nr,
+				kctx->tgid, kctx->id);
+	}
+
+#if !MALI_USE_CSF
+	/*
+	 * JM GPUs has some L1 read only caches that need to be invalidated
+	 * with START_FLUSH configuration. Purge the MMU disabled kctx from
+	 * the slot_rb tracking field so such invalidation is performed when
+	 * a new katom is executed on the affected slots.
+	 */
+	kbase_backend_slot_kctx_purge_locked(kbdev, kctx);
+#endif
+
+	/* kbase_gpu_cache_flush_and_busy_wait() will reset the GPU on timeout. Only
+	 * reset the GPU if locking or unlocking fails.
+	 */
+	if (lock_err)
+		if (kbase_prepare_to_reset_gpu_locked(kbdev, RESET_FLAGS_NONE))
+			kbase_reset_gpu_locked(kbdev);
+}
+#else
 void kbase_mmu_disable(struct kbase_context *kctx)
 {
 	/* ASSERT that the context has a valid as_nr, which is only the case
@@ -2173,6 +2251,7 @@ void kbase_mmu_disable(struct kbase_context *kctx)
 	kbase_backend_slot_kctx_purge_locked(kctx->kbdev, kctx);
 #endif
 }
+#endif
 KBASE_EXPORT_TEST_API(kbase_mmu_disable);
 
 static void kbase_mmu_update_and_free_parent_pgds(struct kbase_device *kbdev,
@@ -2668,7 +2747,7 @@ static void mmu_teardown_level(struct kbase_device *kbdev,
 
 	pgd_page = kmap_atomic(pfn_to_page(PFN_DOWN(pgd)));
 	/* kmap_atomic should NEVER fail. */
-	if (WARN_ON(pgd_page == NULL))
+	if (WARN_ON_ONCE(pgd_page == NULL))
 		return;
 	if (level != MIDGARD_MMU_BOTTOMLEVEL) {
 		/* Copy the page to our preallocated buffer so that we can minimize
@@ -2733,9 +2812,8 @@ int kbase_mmu_init(struct kbase_device *const kbdev,
 	while (mmut->pgd == KBASE_MMU_INVALID_PGD_ADDRESS) {
 		int err;
 
-		err = kbase_mem_pool_grow(
-			&kbdev->mem_pools.small[mmut->group_id],
-			MIDGARD_MMU_BOTTOMLEVEL);
+		err = kbase_mem_pool_grow(&kbdev->mem_pools.small[mmut->group_id],
+					  MIDGARD_MMU_BOTTOMLEVEL, kctx ? kctx->task : NULL);
 		if (err) {
 			kbase_mmu_term(kbdev, mmut);
 			return -ENOMEM;
