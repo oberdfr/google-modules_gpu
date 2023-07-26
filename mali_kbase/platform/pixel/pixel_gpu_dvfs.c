@@ -27,6 +27,8 @@
 #include "pixel_gpu_dvfs.h"
 #include "pixel_gpu_trace.h"
 
+#include <trace/hooks/systrace.h>
+
 #define DVFS_TABLE_ROW_MAX (14)
 #define DVFS_TABLES_MAX (2)
 static struct gpu_dvfs_opp gpu_dvfs_table[DVFS_TABLE_ROW_MAX];
@@ -239,6 +241,7 @@ void gpu_dvfs_event_power_on(struct kbase_device *kbdev)
 {
 	struct pixel_context *pc = kbdev->platform_context;
 
+	ATRACE_BEGIN(__func__);
 	mutex_lock(&pc->dvfs.lock);
 	if (pc->dvfs.level_target != pc->dvfs.level)
 		gpu_dvfs_select_level(kbdev);
@@ -249,6 +252,8 @@ void gpu_dvfs_event_power_on(struct kbase_device *kbdev)
 	mutex_unlock(&pc->dvfs.lock);
 
 	cancel_delayed_work(&pc->dvfs.clockdown_work);
+
+	ATRACE_END();
 }
 
 /**
@@ -415,8 +420,10 @@ void gpu_dvfs_enable_updates(struct kbase_device *kbdev) {
 	mutex_lock(&pc->dvfs.lock);
 	if (!pc->dvfs.updates_enabled) {
 		pc->dvfs.updates_enabled = true;
+		ATRACE_BEGIN("set_acpm_tj_power_status");
 		if (set_acpm_tj_power_status(TZ_GPU, true))
 			dev_err(kbdev->dev, "Failed to set Tj power on status\n");
+		ATRACE_END();
 	}
 	mutex_unlock(&pc->dvfs.lock);
 }

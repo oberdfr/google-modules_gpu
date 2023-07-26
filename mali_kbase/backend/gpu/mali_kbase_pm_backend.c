@@ -42,6 +42,8 @@
 #include <mali_kbase_dummy_job_wa.h>
 #include <backend/gpu/mali_kbase_irq_internal.h>
 
+#include <trace/hooks/systrace.h>
+
 static void kbase_pm_gpu_poweroff_wait_wq(struct work_struct *data);
 static void kbase_pm_hwcnt_disable_worker(struct work_struct *data);
 static void kbase_pm_gpu_clock_control_worker(struct work_struct *data);
@@ -955,12 +957,16 @@ void kbase_pm_set_debug_core_mask(struct kbase_device *kbdev,
 
 void kbase_hwaccess_pm_gpu_active(struct kbase_device *kbdev)
 {
+	ATRACE_BEGIN(__func__);
 	kbase_pm_update_active(kbdev);
+	ATRACE_END();
 }
 
 void kbase_hwaccess_pm_gpu_idle(struct kbase_device *kbdev)
 {
+	ATRACE_BEGIN(__func__);
 	kbase_pm_update_active(kbdev);
+	ATRACE_END();
 }
 
 int kbase_hwaccess_pm_suspend(struct kbase_device *kbdev)
