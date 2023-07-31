@@ -31,6 +31,7 @@
 #include "pixel_gpu_control.h"
 #include "pixel_gpu_trace.h"
 #include <trace/events/power.h>
+#include <trace/hooks/systrace.h>
 
 #if IS_ENABLED(CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL) && IS_ENABLED(CONFIG_MALI_HOST_CONTROLS_SC_RAILS)
 #error "s2mpu device runtime PM control is not expected to be enabled with host-side shader rail control"
@@ -257,10 +258,17 @@ static int gpu_pm_power_on_top_nolock(struct kbase_device *kbdev)
 	int ret;
 	struct pixel_context *pc = kbdev->platform_context;
 
+	ATRACE_BEGIN(__func__);
+	ATRACE_BEGIN("pm_runtime_get_sync: top");
 	pm_runtime_get_sync(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
+	ATRACE_END();
+	ATRACE_BEGIN("pm_runtime_get_sync: cores");
 	pm_runtime_get_sync(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES]);
+	ATRACE_END();
 #ifdef CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL
+	ATRACE_BEGIN("pm_runtime_get_sync: s2mpu");
 	pm_runtime_get_sync(kbdev->s2mpu_dev);
+	ATRACE_END();
 #endif /* CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL */
 	/*
 	 * We determine whether GPU state was lost by detecting whether the GPU state reached
@@ -300,6 +308,8 @@ static int gpu_pm_power_on_top_nolock(struct kbase_device *kbdev)
 	}
 #endif
 	pc->pm.state = GPU_POWER_LEVEL_STACKS;
+
+	ATRACE_END();
 
 	return ret;
 }
@@ -568,9 +578,11 @@ static void gpu_pm_callback_power_runtime_idle(struct kbase_device *kbdev)
 {
 	lockdep_assert_held(&kbdev->pm.lock);
 
+	ATRACE_BEGIN(__func__);
 	pm_runtime_mark_last_busy(kbdev->dev);
 	pm_runtime_put_autosuspend(kbdev->dev);
 	kbdev->pm.runtime_active = false;
+	ATRACE_END();
 }
 
 /**
@@ -585,12 +597,14 @@ static void gpu_pm_callback_power_runtime_active(struct kbase_device *kbdev)
 {
 	lockdep_assert_held(&kbdev->pm.lock);
 
+	ATRACE_BEGIN(__func__);
 	if (pm_runtime_status_suspended(kbdev->dev))
 		pm_runtime_get_sync(kbdev->dev);
 	else
 		pm_runtime_get(kbdev->dev);
 
 	kbdev->pm.runtime_active = true;
+	ATRACE_END();
 }
 #endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
 #endif /* IS_ENABLED(KBASE_PM_RUNTIME) */
