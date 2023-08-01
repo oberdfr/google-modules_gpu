@@ -42,6 +42,8 @@
 
 #include <backend/gpu/mali_kbase_clk_rate_trace_mgr.h>
 
+#include <trace/hooks/systrace.h>
+
 int kbase_pm_powerup(struct kbase_device *kbdev, unsigned int flags)
 {
 	return kbase_hwaccess_pm_powerup(kbdev, flags);
@@ -63,6 +65,7 @@ int kbase_pm_context_active_handle_suspend(struct kbase_device *kbdev,
 {
 	int c;
 
+	ATRACE_BEGIN(__func__);
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 	dev_dbg(kbdev->dev, "%s - reason = %d, pid = %d\n", __func__,
 		suspend_handler, current->pid);
@@ -72,6 +75,7 @@ int kbase_pm_context_active_handle_suspend(struct kbase_device *kbdev,
 	if (kbase_arbiter_pm_ctx_active_handle_suspend(kbdev,
 			suspend_handler)) {
 		kbase_pm_unlock(kbdev);
+		ATRACE_END();
 		return 1;
 	}
 #endif /* CONFIG_MALI_ARBITER_SUPPORT */
@@ -84,6 +88,7 @@ int kbase_pm_context_active_handle_suspend(struct kbase_device *kbdev,
 			fallthrough;
 		case KBASE_PM_SUSPEND_HANDLER_DONT_INCREASE:
 			kbase_pm_unlock(kbdev);
+			ATRACE_END();
 			return 1;
 
 		case KBASE_PM_SUSPEND_HANDLER_NOT_POSSIBLE:
@@ -109,6 +114,7 @@ int kbase_pm_context_active_handle_suspend(struct kbase_device *kbdev,
 
 	kbase_pm_unlock(kbdev);
 	dev_dbg(kbdev->dev, "%s %d\n", __func__, kbdev->pm.active_count);
+	ATRACE_END();
 
 	return 0;
 }
@@ -119,6 +125,7 @@ void kbase_pm_context_idle(struct kbase_device *kbdev)
 {
 	int c;
 
+	ATRACE_BEGIN(__func__);
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 
 
@@ -144,6 +151,7 @@ void kbase_pm_context_idle(struct kbase_device *kbdev)
 	kbase_pm_unlock(kbdev);
 	dev_dbg(kbdev->dev, "%s %d (pid = %d)\n", __func__,
 		kbdev->pm.active_count, current->pid);
+	ATRACE_END();
 }
 
 KBASE_EXPORT_TEST_API(kbase_pm_context_idle);

@@ -35,6 +35,8 @@
 
 #include <linux/of.h>
 
+#include <trace/hooks/systrace.h>
+
 static const struct kbase_pm_policy *const all_policy_list[] = {
 #if IS_ENABLED(CONFIG_MALI_NO_MALI)
 	&kbase_pm_always_on_policy_ops,
@@ -222,11 +224,13 @@ void kbase_pm_update_cores_state(struct kbase_device *kbdev)
 {
 	unsigned long flags;
 
+	ATRACE_BEGIN(__func__);
 	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
 
 	kbase_pm_update_cores_state_nolock(kbdev);
 
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
+	ATRACE_END();
 }
 
 int kbase_pm_list_policies(struct kbase_device *kbdev,
