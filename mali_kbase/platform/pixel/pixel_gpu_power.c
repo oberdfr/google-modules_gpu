@@ -360,7 +360,7 @@ static void gpu_pm_power_off_top_nolock(struct kbase_device *kbdev)
 #endif
 
 #ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
-		if (1) {
+		if (pc->pm.top_suspend_hysteresis_time_ms != 0) {
 #else
 		if (pc->pm.use_autosuspend) {
 #endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
@@ -506,13 +506,17 @@ static int gpu_pm_callback_power_runtime_init(struct kbase_device *kbdev)
 	dev_dbg(kbdev->dev, "%s\n", __func__);
 
 #ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
-	pm_runtime_set_autosuspend_delay(kbdev->dev, pc->pm.cores_suspend_hysteresis_time_ms);
-	pm_runtime_use_autosuspend(kbdev->dev);
+	if (pc->pm.cores_suspend_hysteresis_time_ms != 0) {
+		pm_runtime_set_autosuspend_delay(kbdev->dev, pc->pm.cores_suspend_hysteresis_time_ms);
+		pm_runtime_use_autosuspend(kbdev->dev);
+	}
 	pm_runtime_set_active(kbdev->dev);
 	pm_runtime_enable(kbdev->dev);
-	pm_runtime_set_autosuspend_delay(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP],
-			pc->pm.top_suspend_hysteresis_time_ms);
-	pm_runtime_use_autosuspend(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
+	if (pc->pm.top_suspend_hysteresis_time_ms != 0) {
+		pm_runtime_set_autosuspend_delay(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP],
+				pc->pm.top_suspend_hysteresis_time_ms);
+		pm_runtime_use_autosuspend(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]);
+	}
 #endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
 	if (!pm_runtime_enabled(pc->pm.domain_devs[GPU_PM_DOMAIN_TOP]) ||
 		!pm_runtime_enabled(pc->pm.domain_devs[GPU_PM_DOMAIN_CORES])
@@ -566,10 +570,16 @@ static void gpu_pm_callback_power_runtime_term(struct kbase_device *kbdev)
  */
 static void gpu_pm_callback_power_runtime_idle(struct kbase_device *kbdev)
 {
+	struct pixel_context *pc = kbdev->platform_context;
+
 	lockdep_assert_held(&kbdev->pm.lock);
 
-	pm_runtime_mark_last_busy(kbdev->dev);
-	pm_runtime_put_autosuspend(kbdev->dev);
+	if (pc->pm.cores_suspend_hysteresis_time_ms != 0) {
+		pm_runtime_mark_last_busy(kbdev->dev);
+		pm_runtime_put_autosuspend(kbdev->dev);
+	} else {
+		pm_runtime_put_sync_suspend(kbdev->dev);
+	}
 	kbdev->pm.runtime_active = false;
 }
 
