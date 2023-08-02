@@ -29,6 +29,10 @@
 #include <mali_kbase_kinstr_prfcnt.h>
 #include <mali_kbase_hwcnt_context.h>
 
+#if MALI_USE_CSF
+#include <csf/mali_kbase_csf_scheduler.h>
+#endif
+
 #include <mali_kbase_pm.h>
 #include <backend/gpu/mali_kbase_pm_internal.h>
 
@@ -37,6 +41,8 @@
 #endif /* CONFIG_MALI_ARBITER_SUPPORT */
 
 #include <backend/gpu/mali_kbase_clk_rate_trace_mgr.h>
+
+#include <trace/hooks/systrace.h>
 
 int kbase_pm_powerup(struct kbase_device *kbdev, unsigned int flags)
 {
@@ -59,6 +65,7 @@ int kbase_pm_context_active_handle_suspend(struct kbase_device *kbdev,
 {
 	int c;
 
+	ATRACE_BEGIN(__func__);
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 	dev_dbg(kbdev->dev, "%s - reason = %d, pid = %d\n", __func__,
 		suspend_handler, current->pid);
@@ -68,6 +75,7 @@ int kbase_pm_context_active_handle_suspend(struct kbase_device *kbdev,
 	if (kbase_arbiter_pm_ctx_active_handle_suspend(kbdev,
 			suspend_handler)) {
 		kbase_pm_unlock(kbdev);
+		ATRACE_END();
 		return 1;
 	}
 #endif /* CONFIG_MALI_ARBITER_SUPPORT */
@@ -80,6 +88,7 @@ int kbase_pm_context_active_handle_suspend(struct kbase_device *kbdev,
 			fallthrough;
 		case KBASE_PM_SUSPEND_HANDLER_DONT_INCREASE:
 			kbase_pm_unlock(kbdev);
+			ATRACE_END();
 			return 1;
 
 		case KBASE_PM_SUSPEND_HANDLER_NOT_POSSIBLE:
@@ -105,6 +114,7 @@ int kbase_pm_context_active_handle_suspend(struct kbase_device *kbdev,
 
 	kbase_pm_unlock(kbdev);
 	dev_dbg(kbdev->dev, "%s %d\n", __func__, kbdev->pm.active_count);
+	ATRACE_END();
 
 	return 0;
 }
@@ -115,6 +125,7 @@ void kbase_pm_context_idle(struct kbase_device *kbdev)
 {
 	int c;
 
+	ATRACE_BEGIN(__func__);
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 
 
@@ -140,6 +151,7 @@ void kbase_pm_context_idle(struct kbase_device *kbdev)
 	kbase_pm_unlock(kbdev);
 	dev_dbg(kbdev->dev, "%s %d (pid = %d)\n", __func__,
 		kbdev->pm.active_count, current->pid);
+	ATRACE_END();
 }
 
 KBASE_EXPORT_TEST_API(kbase_pm_context_idle);
@@ -312,6 +324,7 @@ void kbase_pm_resume(struct kbase_device *kbdev)
 #endif /* CONFIG_MALI_ARBITER_SUPPORT */
 }
 
+#if !MALI_USE_CSF
 /**
  * kbase_pm_apc_power_off_worker - Power off worker running on mali_apc_thread
  * @data: A &struct kthread_work
@@ -459,6 +472,14 @@ static enum hrtimer_restart kbase_pm_apc_timer_callback(struct hrtimer *timer)
 
 	return HRTIMER_NORESTART;
 }
+#else
+static void kbase_pm_apc_wakeup_csf_scheduler_worker(struct kthread_work *data)
+{
+	struct kbase_device *kbdev = container_of(data, struct kbase_device, apc.wakeup_csf_scheduler_work);
+
+	kbase_csf_scheduler_force_wakeup(kbdev);
+}
+#endif
 
 int kbase_pm_apc_init(struct kbase_device *kbdev)
 {
@@ -469,6 +490,7 @@ int kbase_pm_apc_init(struct kbase_device *kbdev)
 	if (ret)
 		return ret;
 
+#if !MALI_USE_CSF
 	/*
 	 * We initialize power off and power on work on init as they will each
 	 * only operate on one worker.
@@ -480,12 +502,18 @@ int kbase_pm_apc_init(struct kbase_device *kbdev)
 	kbdev->apc.timer.function = kbase_pm_apc_timer_callback;
 
 	mutex_init(&kbdev->apc.lock);
+#else
+	kthread_init_work(&kbdev->apc.wakeup_csf_scheduler_work, kbase_pm_apc_wakeup_csf_scheduler_worker);
+#endif
 
 	return 0;
 }
 
 void kbase_pm_apc_term(struct kbase_device *kbdev)
 {
+#if !MALI_USE_CSF
 	hrtimer_cancel(&kbdev->apc.timer);
+#endif
+
 	kbase_destroy_kworker_stack(&kbdev->apc.worker);
 }

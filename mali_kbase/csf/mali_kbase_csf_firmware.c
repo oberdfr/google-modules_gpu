@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2018-2022 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2018-2023 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -632,7 +632,7 @@ static int parse_memory_setup_entry(struct kbase_device *kbdev,
 			ret = kbase_mem_pool_alloc_pages(
 				kbase_mem_pool_group_select(
 					kbdev, KBASE_MEM_GROUP_CSF_FW, is_small_page),
-				num_pages_aligned, phys, false);
+				num_pages_aligned, phys, false, NULL);
 		}
 	}
 
@@ -1594,6 +1594,14 @@ static void global_init(struct kbase_device *const kbdev, u64 core_mask)
 
 	set_timeout_global(global_iface, kbase_csf_timeout_get(kbdev));
 
+#ifndef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
+	/* The GPU idle timer is always enabled for simplicity. Checks will be
+	 * done before scheduling the GPU idle worker to see if it is
+	 * appropriate for the current power policy.
+	 */
+	enable_gpu_idle_timer(kbdev);
+#endif
+
 	/* Unmask the interrupts */
 	kbase_csf_firmware_global_input(global_iface,
 		GLB_ACK_IRQ_MASK, ack_irq_mask);
@@ -1857,8 +1865,16 @@ u32 kbase_csf_firmware_set_gpu_idle_hysteresis_time(struct kbase_device *kbdev, 
 		return kbdev->csf.gpu_idle_dur_count;
 	}
 
+#ifndef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
+	/* The 'reg_lock' is also taken and is held till the update is not
+	 * complete, to ensure the update of idle timer value by multiple Users
+	 * gets serialized.
+	 */
+	mutex_lock(&kbdev->csf.reg_lock);
+#else
 	kbase_csf_scheduler_lock(kbdev);
 	if (kbdev->csf.scheduler.gpu_idle_fw_timer_enabled) {
+#endif
 		/* The firmware only reads the new idle timer value when the timer is
 		 * disabled.
 		 */
@@ -1874,6 +1890,7 @@ u32 kbase_csf_firmware_set_gpu_idle_hysteresis_time(struct kbase_device *kbdev, 
 		kbase_csf_firmware_enable_gpu_idle_timer(kbdev);
 		kbase_csf_scheduler_spin_unlock(kbdev, flags);
 		wait_for_global_request(kbdev, GLB_REQ_IDLE_ENABLE_MASK);
+#ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
 	} else {
 		/* Record the new values. Would be used later when timer is
 		 * enabled
@@ -1884,6 +1901,9 @@ u32 kbase_csf_firmware_set_gpu_idle_hysteresis_time(struct kbase_device *kbdev, 
 		kbase_csf_scheduler_spin_unlock(kbdev, flags);
 	}
 	kbase_csf_scheduler_unlock(kbdev);
+#else
+	mutex_unlock(&kbdev->csf.reg_lock);
+#endif
 
 	dev_dbg(kbdev->dev, "GPU suspend timeout updated: %i ms (0x%.8x)",
 		kbdev->csf.gpu_idle_hysteresis_ms,
@@ -2061,11 +2081,6 @@ int kbase_csf_firmware_early_init(struct kbase_device *kbdev)
 
 int kbase_csf_firmware_late_init(struct kbase_device *kbdev)
 {
-	kbdev->csf.gpu_idle_hysteresis_ms = FIRMWARE_IDLE_HYSTERESIS_TIME_MS;
-#ifdef KBASE_PM_RUNTIME
-	if (kbase_pm_gpu_sleep_allowed(kbdev))
-		kbdev->csf.gpu_idle_hysteresis_ms /= FIRMWARE_IDLE_HYSTERESIS_GPU_SLEEP_SCALER;
-#endif
 	WARN_ON(!kbdev->csf.gpu_idle_hysteresis_ms);
 
 #ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
@@ -2737,7 +2752,7 @@ int kbase_csf_firmware_mcu_shared_mapping_init(
 
 	ret = kbase_mem_pool_alloc_pages(
 		&kbdev->mem_pools.small[KBASE_MEM_GROUP_CSF_FW],
-		num_pages, phys, false);
+		num_pages, phys, false, NULL);
 	if (ret <= 0)
 		goto phys_mem_pool_alloc_error;
 

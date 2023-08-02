@@ -61,6 +61,8 @@
 
 #include <linux/of.h>
 
+#include <trace/hooks/systrace.h>
+
 #ifdef CONFIG_MALI_CORESTACK
 bool corestack_driver_control = true;
 #else
@@ -2156,17 +2158,25 @@ void kbase_pm_update_state(struct kbase_device *kbdev)
 	enum kbase_mcu_state prev_mcu_state = kbdev->pm.backend.mcu_state;
 #endif
 
+	ATRACE_BEGIN(__func__);
+
 	lockdep_assert_held(&kbdev->hwaccess_lock);
 
-	if (!kbdev->pm.backend.gpu_ready)
+	if (!kbdev->pm.backend.gpu_ready) {
+		ATRACE_END();
 		return; /* Do nothing if the GPU is not ready */
+	}
 
-	if (kbase_pm_l2_update_state(kbdev))
+	if (kbase_pm_l2_update_state(kbdev)) {
+		ATRACE_END();
 		return;
+	}
 
 #if !MALI_USE_CSF
-	if (kbase_pm_shaders_update_state(kbdev))
+	if (kbase_pm_shaders_update_state(kbdev)) {
+		ATRACE_END();
 		return;
+	}
 
 	/* If the shaders just turned off, re-invoke the L2 state machine, in
 	 * case it was waiting for the shaders to turn off before powering down
@@ -2175,17 +2185,23 @@ void kbase_pm_update_state(struct kbase_device *kbdev)
 	if (prev_shaders_state != KBASE_SHADERS_OFF_CORESTACK_OFF &&
 			kbdev->pm.backend.shaders_state ==
 			KBASE_SHADERS_OFF_CORESTACK_OFF) {
-		if (kbase_pm_l2_update_state(kbdev))
+		if (kbase_pm_l2_update_state(kbdev)) {
+			ATRACE_END();
 			return;
 		}
+	}
 #else
-	if (kbase_pm_mcu_update_state(kbdev))
+	if (kbase_pm_mcu_update_state(kbdev)) {
+		ATRACE_END();
 		return;
+	}
 
 	if (!kbase_pm_is_mcu_inactive(kbdev, prev_mcu_state) &&
 	    kbase_pm_is_mcu_inactive(kbdev, kbdev->pm.backend.mcu_state)) {
-		if (kbase_pm_l2_update_state(kbdev))
+		if (kbase_pm_l2_update_state(kbdev)) {
+			ATRACE_END();
 			return;
+		}
 	}
 #endif
 
@@ -2198,6 +2214,8 @@ void kbase_pm_update_state(struct kbase_device *kbdev)
 		KBASE_KTRACE_ADD(kbdev, PM_WAKE_WAITERS, NULL, 0);
 		wake_up(&kbdev->pm.backend.gpu_in_desired_state_wait);
 	}
+
+	ATRACE_END();
 }
 
 static enum hrtimer_restart
@@ -2597,6 +2615,7 @@ void kbase_pm_enable_interrupts(struct kbase_device *kbdev)
 {
 	unsigned long flags;
 
+	ATRACE_BEGIN(__func__);
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 	/*
 	 * Clear all interrupts,
@@ -2617,6 +2636,7 @@ void kbase_pm_enable_interrupts(struct kbase_device *kbdev)
 #else
 	kbase_reg_write(kbdev, MMU_REG(MMU_IRQ_MASK), 0xFFFFFFFF);
 #endif
+	ATRACE_END();
 }
 
 KBASE_EXPORT_TEST_API(kbase_pm_enable_interrupts);
@@ -2653,6 +2673,7 @@ KBASE_EXPORT_TEST_API(kbase_pm_disable_interrupts);
 #if MALI_USE_CSF
 static void update_user_reg_page_mapping(struct kbase_device *kbdev)
 {
+	ATRACE_BEGIN(__func__);
 	lockdep_assert_held(&kbdev->pm.lock);
 
 	mutex_lock(&kbdev->csf.reg_lock);
@@ -2672,6 +2693,7 @@ static void update_user_reg_page_mapping(struct kbase_device *kbdev)
 	}
 
 	mutex_unlock(&kbdev->csf.reg_lock);
+	ATRACE_END();
 }
 #endif
 
@@ -2688,6 +2710,7 @@ void kbase_pm_clock_on(struct kbase_device *kbdev, bool is_resume)
 	bool reset_required = is_resume;
 	unsigned long flags;
 
+	ATRACE_BEGIN(__func__);
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 #if !MALI_USE_CSF
 	lockdep_assert_held(&kbdev->js_data.runpool_mutex);
@@ -2698,6 +2721,7 @@ void kbase_pm_clock_on(struct kbase_device *kbdev, bool is_resume)
 	if (WARN_ON(kbase_pm_is_gpu_lost(kbdev))) {
 		dev_err(kbdev->dev,
 			"%s: Cannot power up while GPU lost", __func__);
+		ATRACE_END();
 		return;
 	}
 #endif
@@ -2714,6 +2738,7 @@ void kbase_pm_clock_on(struct kbase_device *kbdev, bool is_resume)
 			kbase_pm_enable_interrupts(kbdev);
 		kbdev->poweroff_pending = false;
 		KBASE_DEBUG_ASSERT(!is_resume);
+		ATRACE_END();
 		return;
 	}
 
@@ -2723,6 +2748,7 @@ void kbase_pm_clock_on(struct kbase_device *kbdev, bool is_resume)
 
 	if (is_resume && backend->callback_power_resume) {
 		backend->callback_power_resume(kbdev);
+		ATRACE_END();
 		return;
 	} else if (backend->callback_power_on) {
 		reset_required = backend->callback_power_on(kbdev);
@@ -2814,6 +2840,7 @@ void kbase_pm_clock_on(struct kbase_device *kbdev, bool is_resume)
 	}
 #endif
 
+	ATRACE_END();
 }
 
 KBASE_EXPORT_TEST_API(kbase_pm_clock_on);
@@ -3334,6 +3361,7 @@ int kbase_pm_init_hw(struct kbase_device *kbdev, unsigned int flags)
 	unsigned long irq_flags;
 	int err = 0;
 
+	ATRACE_BEGIN(__func__);
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 	lockdep_assert_held(&kbdev->pm.lock);
 
@@ -3435,6 +3463,8 @@ exit:
 		reenable_protected_mode_hwcnt(kbdev);
 	}
 #endif
+
+	ATRACE_END();
 
 	return err;
 }

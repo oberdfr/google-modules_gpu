@@ -106,7 +106,7 @@ extern struct protected_mode_ops pixel_protected_ops;
 #include "pixel_gpu_uevent.h"
 
 /* All port specific fields go here */
-#define OF_DATA_NUM_MAX 160
+#define OF_DATA_NUM_MAX 200
 #define CPU_FREQ_MAX INT_MAX
 
 enum gpu_power_state {
@@ -245,6 +245,13 @@ struct gpu_dvfs_metrics_uid_stats;
  * @pm.autosuspend_delay:       Delay (in ms) before PM runtime should trigger auto suspend on TOP
  *                              domain if use_autosuspend is true.
  * @pm.bcl_dev:                 Pointer to the Battery Current Limiter device.
+ * @pm.firmware_idle_hysteresis_time_ms The duration of the GPU idle hysteresis in milliseconds. Set via DT.
+ * @pm.firmware_idle_hysteresis_gpu_sleep_scaler Factor for calculating GPU idle hysteresis
+                                in case GPU sleep is enabled. &csf.gpu_idle_hysteresis_ms is eventually
+                                (firmware_idle_hysteresis_time_ms / firmware_idle_hysteresis_gpu_sleep_scaler).
+                                Set via DT.
+ * @pm.cores_suspend_hysteresis_time_ms Hysteresis timeout for suspending CORES domain. Set via DT.
+ * @pm.top_suspend_hysteresis_time_ms   Hysteresis timeout for suspending TOP domain. Set via DT.
  *
  * @tz_protection_enabled:      Storing the secure rendering state of the GPU. Access to this is
  *                              controlled by the HW access lock for the GPU associated with @kbdev.
@@ -337,6 +344,12 @@ struct pixel_context {
 #ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
 		bool ifpo_enabled;
 #endif
+		unsigned int firmware_idle_hysteresis_time_ms;
+#ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
+		unsigned int firmware_idle_hysteresis_gpu_sleep_scaler;
+		unsigned int cores_suspend_hysteresis_time_ms;
+		unsigned int top_suspend_hysteresis_time_ms;
+#endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
 	} pm;
 
 #ifdef CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING

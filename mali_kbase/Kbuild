@@ -104,6 +104,10 @@ endif
 endif
 ifeq ($(CONFIG_SOC_ZUMA),y)
     ccflags-y += -DCONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL
+    ccflags-y += -DCONFIG_MALI_PIXEL_GPU_SLEEP
+# Flag to enable Fmax cap.
+# Comment it to enable all possible OPPs in DVFS table
+    ccflags-y += -DCONFIG_MALI_PIXEL_GPU_HARD_FMAX
 endif
 else
     MALI_JIT_PRESSURE_LIMIT_BASE ?= 1

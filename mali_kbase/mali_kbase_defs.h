@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  *
- * (C) COPYRIGHT 2011-2022 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2011-2023 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -1258,12 +1258,18 @@ struct kbase_device {
 
 	struct {
 		struct kthread_worker worker;
+#if !MALI_USE_CSF
+		// APC ioctl for core domain
 		struct kthread_work power_on_work;
 		struct kthread_work power_off_work;
 		ktime_t end_ts;
 		struct hrtimer timer;
 		bool pending;
 		struct mutex lock;
+#else
+		// sysfs power hint for CSF scheduler
+		struct kthread_work wakeup_csf_scheduler_work;
+#endif
 	} apc;
 
 	struct rb_root process_root;
@@ -1787,6 +1793,10 @@ struct kbase_sub_alloc {
  * @limited_core_mask:    The mask that is applied to the affinity in case of atoms
  *                        marked with BASE_JD_REQ_LIMITED_CORE_MASK.
  * @platform_data:        Pointer to platform specific per-context data.
+ * @task:                 Pointer to the task structure of the main thread of the process
+ *                        that created the Kbase context. It would be set only for the
+ *                        contexts created by the Userspace and not for the contexts
+ *                        created internally by the Kbase.
  *
  * A kernel base context is an entity among which the GPU is scheduled.
  * Each context has its own GPU address space.
@@ -1943,6 +1953,8 @@ struct kbase_context {
 	u64 limited_core_mask;
 
 	void *platform_data;
+
+	struct task_struct *task;
 };
 
 #ifdef CONFIG_MALI_CINSTR_GWT

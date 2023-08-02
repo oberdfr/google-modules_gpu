@@ -48,12 +48,7 @@
 
 #define FIRMWARE_PING_INTERVAL_MS (12000 * KBASE_TIMEOUT_MULTIPLIER) /* 12 seconds */
 
-#define FIRMWARE_IDLE_HYSTERESIS_TIME_MS (60)
-
 #define MALI_HOST_CONTROLS_SC_RAILS_IDLE_TIMER_US (600)
-
-/* Idle hysteresis time can be scaled down when GPU sleep feature is used */
-#define FIRMWARE_IDLE_HYSTERESIS_GPU_SLEEP_SCALER (5)
 
 /**
  * kbase_csf_ctx_init - Initialize the CSF interface for a GPU address space.
