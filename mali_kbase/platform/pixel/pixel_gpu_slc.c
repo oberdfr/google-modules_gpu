@@ -122,7 +122,7 @@ static void gpu_slc_migrate_region(struct kbase_context *kctx, struct kbase_va_r
 	vpfn = reg->start_pfn;
 	page_nr = kbase_reg_current_backed_size(reg);
 
-	err = kbase_mmu_update_pages_no_flush(kctx, vpfn,
+	err = kbase_mmu_update_pages_no_flush(kctx->kbdev, &kctx->mmu, vpfn,
 			kbase_get_gpu_phy_pages(reg),
 			page_nr,
 			reg->flags,
@@ -155,7 +155,7 @@ static void gpu_slc_flush_dirty_region(struct kbase_context *kctx, struct dirty_
 		return;
 
 	kbase_mmu_flush_invalidate_update_pages(
-	    kctx, dirty_reg->first_vpfn, dirty_page_nr, dirty_reg->dirty_pgds);
+	    kctx->kbdev, kctx, dirty_reg->first_vpfn, dirty_page_nr, dirty_reg->dirty_pgds);
 }
 
 /**
