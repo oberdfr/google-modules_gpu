@@ -121,6 +121,7 @@ int kbase_ctx_sched_retain_ctx(struct kbase_context *kctx)
 
 		if (free_as != KBASEP_AS_NR_INVALID) {
 			kbdev->as_free &= ~(1u << free_as);
+			kbasep_platform_context_active(kctx);
 			/* Only program the MMU if the context has not been
 			 * assigned the same address space before.
 			 */
@@ -188,6 +189,7 @@ void kbase_ctx_sched_release_ctx(struct kbase_context *kctx)
 
 	new_ref_count = atomic_dec_return(&kctx->refcount);
 	if (new_ref_count == 0) {
+		kbasep_platform_context_idle(kctx);
 		kbdev->as_free |= (1u << kctx->as_nr);
 		if (kbase_ctx_flag(kctx, KCTX_AS_DISABLED_ON_FAULT)) {
 			KBASE_TLSTREAM_TL_KBASE_CTX_UNASSIGN_AS(
