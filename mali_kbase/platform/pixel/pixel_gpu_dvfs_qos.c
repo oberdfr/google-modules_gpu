@@ -31,7 +31,7 @@
  */
 static inline void qos_reset(struct gpu_dvfs_qos_vote *vote) {
 	if (unlikely(vote->enabled)) {
-		exynos_pm_qos_update_request(&vote->req, EXYNOS_PM_QOS_DEFAULT_VALUE);
+		exynos_pm_qos_update_request_async(&vote->req, EXYNOS_PM_QOS_DEFAULT_VALUE);
 		vote->enabled = false;
 	}
 }
@@ -44,7 +44,7 @@ static inline void qos_reset(struct gpu_dvfs_qos_vote *vote) {
  */
 static inline void qos_set(struct gpu_dvfs_qos_vote *vote, int value) {
 	if (unlikely(value)) {
-		exynos_pm_qos_update_request(&vote->req, value);
+		exynos_pm_qos_update_request_async(&vote->req, value);
 		vote->enabled = true;
 	}
 	else {
