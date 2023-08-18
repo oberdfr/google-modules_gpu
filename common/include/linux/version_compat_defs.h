@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  *
- * (C) COPYRIGHT 2022 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2022-2023 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -24,7 +24,7 @@
 
 #include <linux/version.h>
 
-#if KERNEL_VERSION(4, 16, 0) >= LINUX_VERSION_CODE
+#if KERNEL_VERSION(4, 16, 0) > LINUX_VERSION_CODE
 typedef unsigned int __poll_t;
 #endif
 
@@ -36,6 +36,7 @@ typedef unsigned int __poll_t;
  */
 #ifdef CONFIG_MMU
 #define kbase_mmap_min_addr CONFIG_DEFAULT_MMAP_MIN_ADDR
+
 #ifdef CONFIG_LSM_MMAP_MIN_ADDR
 #if (CONFIG_LSM_MMAP_MIN_ADDR > CONFIG_DEFAULT_MMAP_MIN_ADDR)
 /* Replace the default definition with CONFIG_LSM_MMAP_MIN_ADDR */
@@ -44,9 +45,11 @@ typedef unsigned int __poll_t;
 #pragma message "kbase_mmap_min_addr compiled to CONFIG_LSM_MMAP_MIN_ADDR, no runtime update!"
 #endif /* (CONFIG_LSM_MMAP_MIN_ADDR > CONFIG_DEFAULT_MMAP_MIN_ADDR) */
 #endif /* CONFIG_LSM_MMAP_MIN_ADDR */
+
 #if (kbase_mmap_min_addr == CONFIG_DEFAULT_MMAP_MIN_ADDR)
 #pragma message "kbase_mmap_min_addr compiled to CONFIG_DEFAULT_MMAP_MIN_ADDR, no runtime update!"
 #endif
+
 #else /* CONFIG_MMU */
 #define kbase_mmap_min_addr (0UL)
 #pragma message "kbase_mmap_min_addr compiled to (0UL), no runtime update!"
