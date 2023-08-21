@@ -723,6 +723,17 @@ static bool queue_group_scheduled_locked(struct kbase_queue_group *group)
 	return queue_group_scheduled(group);
 }
 
+static void update_idle_protm_group_state_to_runnable(struct kbase_queue_group *group)
+{
+	lockdep_assert_held(&group->kctx->kbdev->csf.scheduler.lock);
+
+	group->run_state = KBASE_CSF_GROUP_RUNNABLE;
+
+	/* TODO: Enable the trace once definition for CSF_GROUP_RUNNABLE is available
+	 * KBASE_KTRACE_ADD_CSF_GRP(group->kctx->kbdev, CSF_GROUP_RUNNABLE, group, group->run_state);
+	 */
+}
+
 /**
  * scheduler_protm_wait_quit() - Wait for GPU to exit protected mode.
  *
@@ -4101,16 +4112,13 @@ static void protm_enter_set_next_pending_seq(struct kbase_device *const kbdev)
 	struct kbase_csf_scheduler *scheduler = &kbdev->csf.scheduler;
 	u32 num_groups = kbdev->csf.global_iface.group_num;
 	u32 num_csis = kbdev->csf.global_iface.groups[0].stream_num;
-	DECLARE_BITMAP(active_csgs, MAX_SUPPORTED_CSGS) = { 0 };
 	u32 i;
 
 	kbase_csf_scheduler_spin_lock_assert_held(kbdev);
 
-	bitmap_xor(active_csgs, scheduler->csg_slots_idle_mask, scheduler->csg_inuse_bitmap,
-		   num_groups);
 	/* Reset the tick's pending protm seq number to invalid initially */
 	scheduler->tick_protm_pending_seq = KBASEP_TICK_PROTM_PEND_SCAN_SEQ_NR_INVALID;
-	for_each_set_bit(i, active_csgs, num_groups) {
+	for_each_set_bit(i, scheduler->csg_inuse_bitmap, num_groups) {
 		struct kbase_queue_group *group = scheduler->csg_slots[i].resident_group;
 
 		/* Set to the next pending protm group's scan_seq_number */
@@ -4329,7 +4337,8 @@ static void scheduler_apply(struct kbase_device *kbdev)
 }
 
 static void scheduler_ctx_scan_groups(struct kbase_device *kbdev,
-		struct kbase_context *kctx, int priority)
+		struct kbase_context *kctx, int priority, struct list_head *privileged_groups,
+				      struct list_head *active_groups)
 {
 	struct kbase_csf_scheduler *scheduler = &kbdev->csf.scheduler;
 	struct kbase_queue_group *group;
@@ -4345,6 +4354,7 @@ static void scheduler_ctx_scan_groups(struct kbase_device *kbdev,
 
 	list_for_each_entry(group, &kctx->csf.sched.runnable_groups[priority],
 			    link) {
+		bool protm_req;
 		if (WARN_ON(!list_empty(&group->link_to_schedule)))
 			/* This would be a bug */
 			list_del_init(&group->link_to_schedule);
@@ -4355,33 +4365,31 @@ static void scheduler_ctx_scan_groups(struct kbase_device *kbdev,
 		/* Set the scanout sequence number, starting from 0 */
 		group->scan_seq_num = scheduler->csg_scan_count_for_tick++;
 
+		protm_req = !bitmap_empty(group->protm_pending_bitmap,
+					  kbdev->csf.global_iface.groups[0].stream_num);
+
 		if (scheduler->tick_protm_pending_seq ==
 				KBASEP_TICK_PROTM_PEND_SCAN_SEQ_NR_INVALID) {
-			if (!bitmap_empty(group->protm_pending_bitmap,
-			     kbdev->csf.global_iface.groups[0].stream_num))
+			if (protm_req)
 				scheduler->tick_protm_pending_seq =
 					group->scan_seq_num;
 		}
 
-		if (queue_group_idle_locked(group)) {
+		if (protm_req && on_slot_group_idle_locked(group))
+			update_idle_protm_group_state_to_runnable(group);
+		else if (queue_group_idle_locked(group)) {
 			if (can_schedule_idle_group(group))
 				list_add_tail(&group->link_to_schedule,
 					&scheduler->idle_groups_to_schedule);
 			continue;
 		}
 
-		if (!scheduler->ngrp_to_schedule) {
-			/* keep the top csg's origin */
-			scheduler->top_ctx = kctx;
-			scheduler->top_grp = group;
+		if (protm_req && (group->priority == KBASE_QUEUE_GROUP_PRIORITY_REALTIME)) {
+			list_add_tail(&group->link_to_schedule, privileged_groups);
+			continue;
 		}
 
-		list_add_tail(&group->link_to_schedule,
-			      &scheduler->groups_to_schedule);
-		group->prepared_seq_num = scheduler->ngrp_to_schedule++;
-
-		kctx->csf.sched.ngrp_to_schedule++;
-		count_active_address_space(kbdev, kctx);
+		list_add_tail(&group->link_to_schedule, active_groups);
 	}
 }
 
@@ -4700,15 +4708,12 @@ static void scheduler_handle_idle_slots(struct kbase_device *kbdev)
 	spin_unlock_irqrestore(&scheduler->interrupt_lock, flags);
 }
 
-static void scheduler_scan_idle_groups(struct kbase_device *kbdev)
+static void scheduler_scan_group_list(struct kbase_device *kbdev, struct list_head *groups)
 {
 	struct kbase_csf_scheduler *scheduler = &kbdev->csf.scheduler;
 	struct kbase_queue_group *group, *n;
 
-	list_for_each_entry_safe(group, n, &scheduler->idle_groups_to_schedule,
-				 link_to_schedule) {
-		WARN_ON(!can_schedule_idle_group(group));
-
+	list_for_each_entry_safe(group, n, groups, link_to_schedule) {
 		if (!scheduler->ngrp_to_schedule) {
 			/* keep the top csg's origin */
 			scheduler->top_ctx = group->kctx;
@@ -5288,6 +5293,7 @@ static void sc_rails_off_worker(struct work_struct *work)
 static int scheduler_prepare(struct kbase_device *kbdev)
 {
 	struct kbase_csf_scheduler *scheduler = &kbdev->csf.scheduler;
+	struct list_head privileged_groups, active_groups;
 	unsigned long flags;
 	int i;
 
@@ -5313,6 +5319,8 @@ static int scheduler_prepare(struct kbase_device *kbdev)
 	scheduler->num_active_address_spaces = 0;
 	scheduler->num_csg_slots_for_tick = 0;
 	bitmap_zero(scheduler->csg_slots_prio_update, MAX_SUPPORTED_CSGS);
+	INIT_LIST_HEAD(&privileged_groups);
+	INIT_LIST_HEAD(&active_groups);
 
 	spin_lock_irqsave(&scheduler->interrupt_lock, flags);
 	scheduler->tick_protm_pending_seq =
@@ -5322,9 +5330,16 @@ static int scheduler_prepare(struct kbase_device *kbdev)
 		struct kbase_context *kctx;
 
 		list_for_each_entry(kctx, &scheduler->runnable_kctxs, csf.link)
-			scheduler_ctx_scan_groups(kbdev, kctx, i);
+			scheduler_ctx_scan_groups(kbdev, kctx, i, &privileged_groups,
+						  &active_groups);
 	}
 	spin_unlock_irqrestore(&scheduler->interrupt_lock, flags);
+
+	/* Adds privileged (RT + p.mode) groups to the scanout list */
+	scheduler_scan_group_list(kbdev, &privileged_groups);
+
+	/* Adds remainder of active groups to the scanout list */
+	scheduler_scan_group_list(kbdev, &active_groups);
 
 	/* Update this tick's non-idle groups */
 	scheduler->non_idle_scanout_grps = scheduler->ngrp_to_schedule;
@@ -5340,7 +5355,7 @@ static int scheduler_prepare(struct kbase_device *kbdev)
 				 scheduler->non_idle_scanout_grps);
 
 	/* Adds those idle but runnable groups to the scanout list */
-	scheduler_scan_idle_groups(kbdev);
+	scheduler_scan_group_list(kbdev, &scheduler->idle_groups_to_schedule);
 
 	WARN_ON(scheduler->csg_scan_count_for_tick < scheduler->ngrp_to_schedule);
 
@@ -6396,12 +6411,21 @@ static struct kbase_queue_group *scheduler_get_protm_enter_async_group(
 
 		spin_lock_irqsave(&scheduler->interrupt_lock, flags);
 
-		if (kbase_csf_scheduler_protected_mode_in_use(kbdev) ||
-		    bitmap_empty(pending, ginfo->stream_num))
+		if (bitmap_empty(pending, ginfo->stream_num)) {
+			dev_dbg(kbdev->dev,
+				"Pmode requested for group %d of ctx %d_%d with no pending queues",
+				input_grp->handle, input_grp->kctx->tgid, input_grp->kctx->id);
 			input_grp = NULL;
+		} else if (kbase_csf_scheduler_protected_mode_in_use(kbdev)) {
+			kbase_csf_scheduler_invoke_tock(kbdev);
+			input_grp = NULL;
+		}
 
 		spin_unlock_irqrestore(&scheduler->interrupt_lock, flags);
 	} else {
+		if (group && (group->priority == KBASE_QUEUE_GROUP_PRIORITY_REALTIME))
+			kbase_csf_scheduler_invoke_tock(kbdev);
+
 		input_grp = NULL;
 	}
 
@@ -6429,8 +6453,9 @@ void kbase_csf_scheduler_group_protm_enter(struct kbase_queue_group *group)
 
 	mutex_lock(&scheduler->lock);
 
-	if (group->run_state == KBASE_CSF_GROUP_IDLE)
-		group->run_state = KBASE_CSF_GROUP_RUNNABLE;
+	if (on_slot_group_idle_locked(group))
+		update_idle_protm_group_state_to_runnable(group);
+
 	/* Check if the group is now eligible for execution in protected mode. */
 	if (scheduler_get_protm_enter_async_group(kbdev, group))
 		scheduler_group_check_protm_enter(kbdev, group);

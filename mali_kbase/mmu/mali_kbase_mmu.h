@@ -148,6 +148,10 @@ int kbase_mmu_teardown_pages(struct kbase_device *kbdev, struct kbase_mmu_table 
 int kbase_mmu_update_pages(struct kbase_context *kctx, u64 vpfn,
 			   struct tagged_addr *phys, size_t nr,
 			   unsigned long flags, int const group_id);
+void kbase_mmu_flush_invalidate_update_pages(struct kbase_context *kctx, u64 vpfn, size_t nr, u64 dirty_pgds);
+int kbase_mmu_update_pages_no_flush(struct kbase_context *kctx, u64 vpfn,
+					   struct tagged_addr *phys, size_t nr, unsigned long flags,
+					   int const group_id, u64 *dirty_pgds);
 
 /**
  * kbase_mmu_bus_fault_interrupt - Process a bus fault interrupt.
