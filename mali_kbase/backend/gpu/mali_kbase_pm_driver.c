@@ -3352,6 +3352,9 @@ static int kbase_pm_do_reset(struct kbase_device *kbdev)
 
 	KBASE_TLSTREAM_JD_GPU_SOFT_RESET(kbdev, kbdev);
 
+	/* Unmask the reset complete interrupt only */
+	kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK), RESET_COMPLETED);
+
 	if (kbdev->pm.backend.callback_soft_reset) {
 		ret = kbdev->pm.backend.callback_soft_reset(kbdev);
 		if (ret < 0)
@@ -3362,9 +3365,6 @@ static int kbase_pm_do_reset(struct kbase_device *kbdev)
 		kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_COMMAND),
 				GPU_COMMAND_SOFT_RESET);
 	}
-
-	/* Unmask the reset complete interrupt only */
-	kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK), RESET_COMPLETED);
 
 	/* Initialize a structure for tracking the status of the reset */
 	rtdata.kbdev = kbdev;
