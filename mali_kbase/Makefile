@@ -247,6 +247,7 @@ include $(KDIR)/../private/google-modules/soc/gs/Makefile.include
 # KBUILD_EXTRA_SYMBOLS to prevent warnings about unknown functions
 #
 EXTRA_SYMBOLS += $(OUT_DIR)/../private/google-modules/gpu/mali_pixel/Module.symvers
+EXTRA_SYMBOLS += $(OUT_DIR)/../private/google-modules/power/mitigation/Module.symvers
 
 KBUILD_CFLAGS += -Wall -Werror
 
