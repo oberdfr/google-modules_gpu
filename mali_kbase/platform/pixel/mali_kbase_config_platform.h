@@ -85,6 +85,12 @@ extern struct protected_mode_ops pixel_protected_ops;
 #include <linux/workqueue.h>
 #endif /* CONFIG_MALI_MIDGARD_DVFS */
 
+#if IS_ENABLED(CONFIG_EXYNOS_ITMON)
+#include <linux/atomic.h>
+#include <linux/notifier.h>
+#include <linux/workqueue.h>
+#endif /* IS_ENABLED(CONFIG_EXYNOS_ITMON) */
+
 /* SOC level includes */
 #if IS_ENABLED(CONFIG_GOOGLE_BCL)
 #include <soc/google/bcl.h>
@@ -317,6 +323,12 @@ struct gpu_dvfs_metrics_uid_stats;
  * @slc.lock:           Synchronize updates to the SLC partition accounting variables.
  * @slc.demand:         The total demand for SLC space, an aggregation of each kctx's demand.
  * @slc.usage:          The total amount of SLC space used, an aggregation of each kctx's usage.
+ *
+ * @itmon.wq:     A workqueue for ITMON page table search.
+ * @itmon.work:   The work item for the above.
+ * @itmon.nb:     The ITMON notifier block.
+ * @itmon.pa:     The faulting physical address.
+ * @itmon.active: Active count, non-zero while a search is active.
  */
 struct pixel_context {
 	struct kbase_device *kbdev;
@@ -448,21 +460,37 @@ struct pixel_context {
 		u64 demand;
 		u64 usage;
 	} slc;
+
+#if IS_ENABLED(CONFIG_EXYNOS_ITMON)
+	struct {
+		struct workqueue_struct *wq;
+		struct work_struct work;
+		struct notifier_block nb;
+		phys_addr_t pa;
+		atomic_t active;
+	} itmon;
+#endif
 };
 
 /**
  * struct pixel_platform_data - Per kbase_context Pixel specific platform data
  *
- * @stats:      Tracks the dvfs metrics for the UID associated with this context
+ * @kctx:  Handle to the parent kctx
+ * @stats: Tracks the dvfs metrics for the UID associated with this context
  *
- * @slc.peak_demand: The parent context's maximum demand for SLC space
- * @slc.peak_usage:  The parent context's maximum use of SLC space
+ * @slc.peak_demand:         The parent context's maximum demand for SLC space
+ * @slc.peak_usage:          The parent context's maximum use of SLC space
+ * @slc.idle_work:           Work item used to queue SLC partition shrink upon context idle
+ * @slc.idle_work_cancelled: Flag for async cancellation of idle_work
  */
 struct pixel_platform_data {
+	struct kbase_context *kctx;
 	struct gpu_dvfs_metrics_uid_stats* stats;
 	struct {
 		u64 peak_demand;
 		u64 peak_usage;
+		struct work_struct idle_work;
+		atomic_t idle_work_cancelled;
 	} slc;
 };
 
