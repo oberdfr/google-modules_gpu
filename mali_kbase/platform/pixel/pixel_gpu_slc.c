@@ -17,6 +17,11 @@
 #include "mali_kbase_config_platform.h"
 #include "pixel_gpu_slc.h"
 
+struct dirty_region {
+	u64 first_vpfn;
+	u64 last_vpfn;
+	u64 dirty_pgds;
+};
 
 /**
  * struct gpu_slc_liveness_update_info - Buffer info, and live ranges
@@ -101,26 +106,56 @@ invalid:
 /**
  * gpu_slc_migrate_region - Add PBHA that will make the pages SLC cacheable
  *
- * @kctx:  The &struct kbase_context
- * @reg:   The gpu memory region migrate to an SLC cacheable memory group
+ * @kctx:      The &struct kbase_context
+ * @reg:       The gpu memory region migrate to an SLC cacheable memory group
+ * @dirty_reg: The &struct dirty_region containing the extent of the dirty page table entries
  */
-static void gpu_slc_migrate_region(struct kbase_context *kctx, struct kbase_va_region* reg)
+static void gpu_slc_migrate_region(struct kbase_context *kctx, struct kbase_va_region *reg, struct dirty_region *dirty_reg)
 {
 	int err;
+	u64 vpfn;
+	size_t page_nr;
 
 	KBASE_DEBUG_ASSERT(kctx);
 	KBASE_DEBUG_ASSERT(reg);
 
-	err = kbase_mmu_update_pages(kctx, reg->start_pfn,
+	vpfn = reg->start_pfn;
+	page_nr = kbase_reg_current_backed_size(reg);
+
+	err = kbase_mmu_update_pages_no_flush(kctx->kbdev, &kctx->mmu, vpfn,
 			kbase_get_gpu_phy_pages(reg),
-			kbase_reg_current_backed_size(reg),
+			page_nr,
 			reg->flags,
-			MGM_SLC_GROUP_ID);
+			MGM_SLC_GROUP_ID,
+			&dirty_reg->dirty_pgds);
+
+	/* Track the dirty region */
+	dirty_reg->first_vpfn = min(dirty_reg->first_vpfn, vpfn);
+	dirty_reg->last_vpfn = max(dirty_reg->last_vpfn, vpfn + page_nr);
+
 	if (err)
 		dev_warn(kctx->kbdev->dev, "pixel: failed to move region to SLC: %d", err);
 	else
 		/* If everything is good, then set the new group on the region. */
 		reg->gpu_alloc->group_id = MGM_SLC_GROUP_ID;
+}
+
+/**
+ * gpu_slc_flush_dirty_region - Perform an MMU flush for a dirty page region
+ *
+ * @kctx:      The &struct kbase_context
+ * @dirty_reg: The &struct dirty_region containing the extent of the dirty page table entries
+ */
+static void gpu_slc_flush_dirty_region(struct kbase_context *kctx, struct dirty_region *dirty_reg)
+{
+	size_t const dirty_page_nr =
+	    (dirty_reg->last_vpfn - min(dirty_reg->first_vpfn, dirty_reg->last_vpfn));
+
+	if (!dirty_page_nr)
+		return;
+
+	kbase_mmu_flush_invalidate_update_pages(
+	    kctx->kbdev, kctx, dirty_reg->first_vpfn, dirty_page_nr, dirty_reg->dirty_pgds);
 }
 
 /**
@@ -168,6 +203,11 @@ static void gpu_slc_liveness_update(struct kbase_context* kctx,
 	struct kbase_device* kbdev = kctx->kbdev;
 	struct pixel_context *pc = kbdev->platform_context;
 	struct pixel_platform_data *kctx_pd = kctx->platform_data;
+	struct dirty_region dirty_reg = {
+		.first_vpfn = U64_MAX,
+		.last_vpfn = 0,
+		.dirty_pgds = 0,
+	};
 	u64 current_usage = 0;
 	u64 current_demand = 0;
 	u64 free_space;
@@ -210,7 +250,7 @@ static void gpu_slc_liveness_update(struct kbase_context* kctx,
 
 			/* Check whether there's free space in the partition to store the buffer */
 			if (free_space >= current_usage + size)
-				gpu_slc_migrate_region(kctx, reg);
+				gpu_slc_migrate_region(kctx, reg, &dirty_reg);
 
 			/* This may be true, even if the space calculation above returned false,
 			 * as a previous call to this function may have migrated the region.
@@ -231,6 +271,9 @@ static void gpu_slc_liveness_update(struct kbase_context* kctx,
 			break;
 		}
 	}
+	/* Perform single page table flush */
+	gpu_slc_flush_dirty_region(kctx, &dirty_reg);
+
 	/* Indicates a missing live range end marker */
 	WARN_ON_ONCE(current_demand != 0 || current_usage != 0);
 
@@ -250,6 +293,30 @@ static void gpu_slc_liveness_update(struct kbase_context* kctx,
 
 	mutex_unlock(&pc->slc.lock);
 	gpu_slc_unlock_as(kctx);
+}
+
+static void gpu_slc_kctx_idle_worker(struct work_struct *work)
+{
+	struct pixel_platform_data *pd =
+		container_of(work, struct pixel_platform_data, slc.idle_work);
+	struct kbase_context *kctx = pd->kctx;
+	struct kbase_device *kbdev = kctx->kbdev;
+	struct pixel_context *pc = kbdev->platform_context;
+
+	if (atomic_read(&pd->slc.idle_work_cancelled))
+		return;
+
+	mutex_lock(&pc->slc.lock);
+
+	pc->slc.demand -= pd->slc.peak_demand;
+	pc->slc.usage -= pd->slc.peak_usage;
+
+	pd->slc.peak_demand = 0;
+	pd->slc.peak_usage = 0;
+
+	gpu_slc_resize_partition(kctx->kbdev);
+
+	mutex_unlock(&pc->slc.lock);
 }
 
 /**
@@ -343,7 +410,10 @@ done:
  */
 int gpu_slc_kctx_init(struct kbase_context *kctx)
 {
-	(void)kctx;
+	struct pixel_platform_data *pd = kctx->platform_data;
+
+	INIT_WORK(&pd->slc.idle_work, gpu_slc_kctx_idle_worker);
+
 	return 0;
 }
 
@@ -356,9 +426,12 @@ int gpu_slc_kctx_init(struct kbase_context *kctx)
  */
 void gpu_slc_kctx_term(struct kbase_context *kctx)
 {
-	struct kbase_device* kbdev = kctx->kbdev;
+	struct kbase_device *kbdev = kctx->kbdev;
 	struct pixel_context *pc = kbdev->platform_context;
 	struct pixel_platform_data *kctx_pd = kctx->platform_data;
+
+	atomic_set(&kctx_pd->slc.idle_work_cancelled, 1);
+	cancel_work_sync(&kctx_pd->slc.idle_work);
 
 	mutex_lock(&pc->slc.lock);
 
@@ -372,6 +445,48 @@ void gpu_slc_kctx_term(struct kbase_context *kctx)
 	mutex_unlock(&pc->slc.lock);
 }
 
+/**
+ * gpu_slc_kctx_active() - Called when a kernel context is (re)activated
+ *
+ * @kctx: The &struct kbase_context that is now active
+ */
+void gpu_slc_kctx_active(struct kbase_context *kctx)
+{
+	struct kbase_device *kbdev = kctx->kbdev;
+	struct pixel_platform_data *pd = kctx->platform_data;
+
+	lockdep_assert_held(&kbdev->hwaccess_lock);
+
+	/* Asynchronously cancel the idle work, since we're in atomic context.
+	 * The goal here is not to ensure that the idle_work doesn't run. Instead we need to ensure
+	 * that any  queued idle_work does not run *after* a liveness update for the now active kctx.
+	 * Either the idle_work is executing now, and beats the cancellation check, or it runs later
+	 * and early-exits at the cancellation check.
+	 * In neither scenario will a 'cancelled' idle_work interfere with a later liveness update.
+	 */
+	atomic_set(&pd->slc.idle_work_cancelled, 1);
+}
+
+/**
+ * gpu_slc_kctx_idle() - Called when a kernel context is idled
+ *
+ * @kctx: The &struct kbase_context that is now idle
+ */
+void gpu_slc_kctx_idle(struct kbase_context *kctx)
+{
+	struct kbase_device *kbdev = kctx->kbdev;
+	struct pixel_platform_data *pd = kctx->platform_data;
+
+	lockdep_assert_held(&kbdev->hwaccess_lock);
+
+	/* In the event that this line 'un-cancels' the idle_work, and that idle_work is executing,
+	 * we will re-queue on the following line anyway, resulting in a unnecessary additional
+	 * execution of the worker.
+	 * While not optimal, it won't result in a correctness problem.
+	 */
+	atomic_set(&pd->slc.idle_work_cancelled, 0);
+	queue_work(system_highpri_wq, &pd->slc.idle_work);
+}
 
 /**
  * gpu_slc_init - Initialize the SLC partition for the GPU
