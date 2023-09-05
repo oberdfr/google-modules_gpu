@@ -29,7 +29,12 @@
 #include "mali_kbase_config_platform.h"
 #include "pixel_gpu_control.h"
 #include "pixel_gpu_sscd.h"
+
+#if IS_ENABLED(CONFIG_MALI_PIXEL_GPU_SLC)
 #include "pixel_gpu_slc.h"
+#endif
+
+#include "device/mali_kbase_device_internal.h"
 
 #define CREATE_TRACE_POINTS
 #include "pixel_gpu_trace.h"
@@ -192,17 +197,21 @@ static int gpu_pixel_kctx_init(struct kbase_context *kctx)
 		goto done;
 	}
 
+#if IS_ENABLED(CONFIG_MALI_MIDGARD_DVFS)
 	err = gpu_dvfs_kctx_init(kctx);
 	if (err) {
 		dev_err(kbdev->dev, "pixel: DVFS kctx init failed\n");
 		goto done;
 	}
+#endif
 
+#if IS_ENABLED(CONFIG_MALI_PIXEL_GPU_SLC)
 	err = gpu_slc_kctx_init(kctx);
 	if (err) {
 		dev_err(kbdev->dev, "pixel: SLC kctx init failed\n");
 		goto done;
 	}
+#endif
 
 done:
 	return err;
@@ -215,8 +224,12 @@ done:
  */
 static void gpu_pixel_kctx_term(struct kbase_context *kctx)
 {
+#if IS_ENABLED(CONFIG_MALI_PIXEL_GPU_SLC)
 	gpu_slc_kctx_term(kctx);
+#endif
+#if IS_ENABLED(CONFIG_MALI_MIDGARD_DVFS)
 	gpu_dvfs_kctx_term(kctx);
+#endif
 
 	kfree(kctx->platform_data);
 	kctx->platform_data = NULL;
@@ -273,7 +286,9 @@ static const struct kbase_device_init dev_init[] = {
 #endif
 	{ gpu_sysfs_init, gpu_sysfs_term, "sysfs init failed" },
 	{ gpu_sscd_init, gpu_sscd_term, "SSCD init failed" },
+#if IS_ENABLED(CONFIG_MALI_PIXEL_GPU_SLC)
 	{ gpu_slc_init, gpu_slc_term, "SLC init failed" },
+#endif
 };
 
 static void gpu_pixel_term_partial(struct kbase_device *kbdev,
