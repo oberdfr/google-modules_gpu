@@ -93,7 +93,7 @@ extern struct protected_mode_ops pixel_protected_ops;
 
 /* SOC level includes */
 #if IS_ENABLED(CONFIG_GOOGLE_BCL)
-#include <soc/google/bcl.h>
+#include <bcl.h>
 #endif
 #if IS_ENABLED(CONFIG_EXYNOS_PD)
 #include <soc/google/exynos-pd.h>
