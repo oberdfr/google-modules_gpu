@@ -1382,8 +1382,10 @@ static int kbase_pm_l2_update_state(struct kbase_device *kbdev)
 		case KBASE_L2_OFF:
 			if (kbase_pm_is_l2_desired(kbdev) && can_power_up_l2(kbdev)) {
 #if MALI_USE_CSF && defined(KBASE_PM_RUNTIME)
+#if IS_ENABLED(CONFIG_SOC_GS201)
 				// Workaround: give a short pause here before starting L2 transition.
 				udelay(200);
+#endif
 				/* Enable HW timer of IPA control before
 				 * L2 cache is powered-up.
 				 */
