@@ -186,6 +186,7 @@ static int gpu_fw_cfg_init(struct kbase_device *kbdev) {
 static int gpu_pixel_kctx_init(struct kbase_context *kctx)
 {
 	struct kbase_device* kbdev = kctx->kbdev;
+	struct pixel_platform_data *platform_data;
 	int err;
 
 	kctx->platform_data = kzalloc(sizeof(struct pixel_platform_data), GFP_KERNEL);
@@ -194,6 +195,9 @@ static int gpu_pixel_kctx_init(struct kbase_context *kctx)
 		err = -ENOMEM;
 		goto done;
 	}
+
+	platform_data = kctx->platform_data;
+	platform_data->kctx = kctx;
 
 #if IS_ENABLED(CONFIG_MALI_MIDGARD_DVFS)
 	err = gpu_dvfs_kctx_init(kctx);
@@ -287,6 +291,9 @@ static const struct kbase_device_init dev_init[] = {
 #if IS_ENABLED(CONFIG_MALI_PIXEL_GPU_SLC)
 	{ gpu_slc_init, gpu_slc_term, "SLC init failed" },
 #endif
+#if IS_ENABLED(CONFIG_EXYNOS_ITMON)
+	{ gpu_itmon_init, gpu_itmon_term, "ITMON notifier init failed" },
+#endif
 };
 
 static void gpu_pixel_term_partial(struct kbase_device *kbdev,
@@ -365,6 +372,8 @@ struct kbase_platform_funcs_conf platform_funcs = {
 	.platform_handler_work_begin_func = &gpu_dvfs_metrics_work_begin,
 	.platform_handler_work_end_func = &gpu_dvfs_metrics_work_end,
 #endif /* CONFIG_MALI_MIDGARD_DVFS */
+	.platform_handler_context_active = &gpu_slc_kctx_active,
+	.platform_handler_context_idle = &gpu_slc_kctx_idle,
 	.platform_fw_cfg_init_func = &gpu_fw_cfg_init,
 	.platform_handler_core_dump_func = &gpu_sscd_dump,
 };
