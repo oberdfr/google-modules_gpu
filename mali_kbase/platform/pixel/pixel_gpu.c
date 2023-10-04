@@ -34,8 +34,6 @@
 #include "pixel_gpu_slc.h"
 #endif
 
-#include "device/mali_kbase_device_internal.h"
-
 #define CREATE_TRACE_POINTS
 #include "pixel_gpu_trace.h"
 
