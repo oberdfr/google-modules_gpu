@@ -123,6 +123,8 @@
 
 #include <mali_kbase_caps.h>
 
+#include <linux/sched/types.h>
+
 #define KERNEL_SIDE_DDK_VERSION_STRING "K:" MALI_RELEASE_NAME "(GPL)"
 
 /**
@@ -202,23 +204,20 @@ bool mali_kbase_supports_cap(unsigned long api_version, enum mali_kbase_cap cap)
 
 static void kbase_set_sched_rt(struct kbase_device *kbdev, struct task_struct *task, char *thread_name)
 {
-	unsigned int i;
-	static const struct sched_param param = {
+	static struct sched_attr attr = {
+		.sched_policy = SCHED_FIFO,
 		.sched_priority = KBASE_RT_THREAD_PRIO,
 	};
 
-	cpumask_t mask = { CPU_BITS_NONE };
-	for (i = KBASE_RT_THREAD_CPUMASK_MIN; i <= KBASE_RT_THREAD_CPUMASK_MAX ; i++)
-		cpumask_set_cpu(i, &mask);
-	kthread_bind_mask(task, &mask);
+	attr.sched_util_min = kbdev->uclamp_rt.min;
+	attr.sched_util_max = kbdev->uclamp_rt.max;
 
 	wake_up_process(task);
-
-	if (sched_setscheduler_nocheck(task, SCHED_FIFO, &param))
-		dev_warn(kbdev->dev, "%s not set to RT prio", thread_name);
-	else
-		dev_dbg(kbdev->dev, "%s set to RT prio: %i",
-			thread_name, param.sched_priority);
+	if(sched_setattr_nocheck(task, &attr))
+		dev_warn(kbdev->dev, "%s attributes weren't set", thread_name);
+	else {
+		dev_dbg(kbdev->dev, "%s set to RT prio: %i", thread_name, attr.sched_priority);
+	}
 }
 
 struct task_struct *kbase_kthread_run_rt(struct kbase_device *kbdev,
