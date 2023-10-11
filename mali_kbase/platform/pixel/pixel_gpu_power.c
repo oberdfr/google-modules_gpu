@@ -968,10 +968,10 @@ int gpu_pm_init(struct kbase_device *kbdev)
 	}
 #endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
 
-#define USECS_PER_MICROSECS 1000u
-	kbdev->csf.gpu_idle_hysteresis_us = pc->pm.firmware_idle_hysteresis_time_ms * USECS_PER_MICROSECS;
+#define NSECS_PER_MICROSECS (1000u * 1000u)
+	kbdev->csf.gpu_idle_hysteresis_ns = pc->pm.firmware_idle_hysteresis_time_ms * NSECS_PER_MICROSECS;
 #ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
-	kbdev->csf.gpu_idle_hysteresis_us /= pc->pm.firmware_idle_hysteresis_gpu_sleep_scaler;
+	kbdev->csf.gpu_idle_hysteresis_ns /= pc->pm.firmware_idle_hysteresis_gpu_sleep_scaler;
 #endif /* CONFIG_MALI_PIXEL_GPU_SLEEP */
 #endif /* MALI_USE_CSF */
 

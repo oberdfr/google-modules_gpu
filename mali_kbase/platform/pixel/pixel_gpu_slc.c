@@ -28,6 +28,7 @@ struct dirty_region {
  *
  * @buffer_va:         Array of buffer base virtual addresses
  * @buffer_sizes:      Array of buffer sizes
+ * @buffer_count:      Number of elements in the va and sizes buffers
  * @live_ranges:       Array of &struct kbase_pixel_gpu_slc_liveness_mark denoting live ranges for
  *                     each buffer
  * @live_ranges_count: Number of elements in the live ranges buffer
@@ -35,6 +36,7 @@ struct dirty_region {
 struct gpu_slc_liveness_update_info {
 	u64* buffer_va;
 	u64* buffer_sizes;
+	u64 buffer_count;
 	struct kbase_pixel_gpu_slc_liveness_mark* live_ranges;
 	u64 live_ranges_count;
 };
@@ -234,8 +236,15 @@ static void gpu_slc_liveness_update(struct kbase_context* kctx,
 	for (i = 0; i < info->live_ranges_count; ++i)
 	{
 		struct kbase_va_region *reg;
-		u64 const size = info->buffer_sizes[info->live_ranges[i].index];
-		u64 const va = info->buffer_va[info->live_ranges[i].index];
+		u64 size;
+		u64 va;
+		u32 index = info->live_ranges[i].index;
+
+		if (unlikely(index >= info->buffer_count))
+			continue;
+
+		size = info->buffer_sizes[index];
+		va = info->buffer_va[index];
 
 		reg = gpu_slc_get_region(kctx, va);
 		if(!reg)
@@ -332,25 +341,34 @@ static void gpu_slc_kctx_idle_worker(struct work_struct *work)
 int gpu_pixel_handle_buffer_liveness_update_ioctl(struct kbase_context* kctx,
                                                   struct kbase_ioctl_buffer_liveness_update* update)
 {
-	int err = 0;
+	int err = -EINVAL;
 	struct gpu_slc_liveness_update_info info;
-	u64* buff;
+	u64* buff = NULL;
+	u64 total_buff_size;
 
 	/* Compute the sizes of the user space arrays that we need to copy */
 	u64 const buffer_info_size = sizeof(u64) * update->buffer_count;
 	u64 const live_ranges_size =
 	    sizeof(struct kbase_pixel_gpu_slc_liveness_mark) * update->live_ranges_count;
 
-	/* Nothing to do */
+	/* Guard against overflows and empty sizes */
 	if (!buffer_info_size || !live_ranges_size)
 		goto done;
-
+	if (U64_MAX / sizeof(u64) < update->buffer_count)
+		goto done;
+	if (U64_MAX / sizeof(struct kbase_pixel_gpu_slc_liveness_mark) < update->live_ranges_count)
+		goto done;
 	/* Guard against nullptr */
 	if (!update->live_ranges_address || !update->buffer_va_address || !update->buffer_sizes_address)
 		goto done;
+	/* Calculate the total buffer size required and detect overflows */
+	if ((U64_MAX - live_ranges_size) / 2 < buffer_info_size)
+		goto done;
+
+	total_buff_size = buffer_info_size * 2 + live_ranges_size;
 
 	/* Allocate the memory we require to copy from user space */
-	buff = kmalloc(buffer_info_size * 2 + live_ranges_size, GFP_KERNEL);
+	buff = kmalloc(total_buff_size, GFP_KERNEL);
 	if (buff == NULL) {
 		dev_err(kctx->kbdev->dev, "pixel: failed to allocate buffer for liveness update");
 		err = -ENOMEM;
@@ -361,6 +379,7 @@ int gpu_pixel_handle_buffer_liveness_update_ioctl(struct kbase_context* kctx,
 	info = (struct gpu_slc_liveness_update_info){
 	    .buffer_va = buff,
 	    .buffer_sizes = buff + update->buffer_count,
+	    .buffer_count = update->buffer_count,
 	    .live_ranges = (struct kbase_pixel_gpu_slc_liveness_mark*)(buff + update->buffer_count * 2),
 	    .live_ranges_count = update->live_ranges_count,
 	};
