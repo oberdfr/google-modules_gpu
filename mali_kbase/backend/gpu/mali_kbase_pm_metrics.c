@@ -325,7 +325,7 @@ static bool kbase_pm_get_dvfs_utilisation_calc(struct kbase_device *kbdev)
 		gpu_iter_active_counter += protected_time;
 		mcu_active_counter >>= KBASE_PM_TIME_SHIFT;
 
-#if MALI_USE_CSF && IS_ENABLED(CONFIG_MALI_MIDGARD_DVFS)
+#if MALI_USE_CSF
 		mcu_active_counter += ((protected_time /
 					pc->dvfs.tunable.mcu_protm_scale_den) *
 				       pc->dvfs.tunable.mcu_protm_scale_num);

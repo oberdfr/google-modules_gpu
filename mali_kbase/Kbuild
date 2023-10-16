@@ -68,12 +68,11 @@ endif
 # Configurations
 #
 
-# Driver version string which is returned to userspace via an ioctl
-MALI_RELEASE_NAME ?= '"r43p0-01eac0"'
-
 # We are building for Pixel
 CONFIG_MALI_PLATFORM_NAME="pixel"
 
+# Driver version string which is returned to userspace via an ioctl
+MALI_RELEASE_NAME ?= '"r44p1-00dev3"'
 # Set up defaults if not defined by build system
 ifeq ($(CONFIG_MALI_DEBUG), y)
     MALI_UNIT_TEST = 1
@@ -106,7 +105,6 @@ ifeq ($(CONFIG_SOC_ZUMA),y)
 # Flag to enable Fmax cap.
 # Comment it to enable all possible OPPs in DVFS table
     ccflags-y += -DCONFIG_MALI_PIXEL_GPU_HARD_FMAX
-#   ccflags-y += -DCONFIG_GOOGLE_BCL
 endif
 else
     MALI_JIT_PRESSURE_LIMIT_BASE ?= 1
@@ -141,9 +139,6 @@ ccflags-y += \
     -DMALI_JIT_PRESSURE_LIMIT_BASE=$(MALI_JIT_PRESSURE_LIMIT_BASE) \
     -DMALI_INCREMENTAL_RENDERING_JM=$(MALI_INCREMENTAL_RENDERING_JM) \
     -DMALI_PLATFORM_DIR=$(MALI_PLATFORM_DIR)
-
-subdir-ccflags-y += \
-		-I$(KERNEL_SRC)/../private/google-modules/power/mitigation
 
 ifeq ($(KBUILD_EXTMOD),)
 # in-tree
@@ -200,7 +195,6 @@ mali_kbase-y := \
     mali_kbase_mem_pool.o \
     mali_kbase_mem_pool_debugfs.o \
     mali_kbase_debugfs_helper.o \
-    mali_kbase_strings.o \
     mali_kbase_as_fault_debugfs.o \
     mali_kbase_regs_history_debugfs.o \
     mali_kbase_dvfs_debugfs.o \
@@ -216,6 +210,10 @@ mali_kbase-$(CONFIG_SYNC_FILE) += \
     mali_kbase_fence_ops.o \
     mali_kbase_sync_file.o \
     mali_kbase_sync_common.o
+
+mali_kbase-$(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD) += \
+        mali_power_gpu_work_period_trace.o \
+        mali_kbase_gpu_metrics.o
 
 ifneq ($(CONFIG_MALI_CSF_SUPPORT),y)
     mali_kbase-y += \

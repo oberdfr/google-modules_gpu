@@ -30,7 +30,7 @@ int kbase_csf_protected_memory_init(struct kbase_device *const kbdev)
 {
 	int err = 0;
 
-#if IS_ENABLED(CONFIG_OF) && IS_ENABLED(CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING)
+#if IS_ENABLED(CONFIG_OF)
 	struct device_node *pma_node = of_parse_phandle(kbdev->dev->of_node,
 					"protected-memory-allocator", 0);
 	if (!pma_node) {
