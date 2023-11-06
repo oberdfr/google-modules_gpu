@@ -34,6 +34,7 @@ kernel_module(
         "**/*Makefile",
     ]) + [
         "//private/google-modules/gpu/common:headers",
+        "//private/google-modules/power/mitigation:headers",
         "//private/google-modules/soc/gs:gs_soc_headers",
     ],
     outs = _midgard_modules,
@@ -44,6 +45,7 @@ kernel_module(
     ],
     deps = [
         "//private/google-modules/gpu/mali_pixel",
+        "//private/google-modules/power/mitigation:bcl",
         "//private/google-modules/soc/gs:gs_soc_module",
     ],
 )

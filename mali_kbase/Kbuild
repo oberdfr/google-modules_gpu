@@ -111,6 +111,7 @@ else
     MALI_USE_CSF ?= 0
 endif
 
+ccflags-y += -DCONFIG_GOOGLE_BCL
 
 ifneq ($(CONFIG_MALI_KUTF), n)
     MALI_KERNEL_TEST_API ?= 1
@@ -139,6 +140,9 @@ ccflags-y += \
     -DMALI_JIT_PRESSURE_LIMIT_BASE=$(MALI_JIT_PRESSURE_LIMIT_BASE) \
     -DMALI_INCREMENTAL_RENDERING_JM=$(MALI_INCREMENTAL_RENDERING_JM) \
     -DMALI_PLATFORM_DIR=$(MALI_PLATFORM_DIR)
+
+subdir-ccflags-y += \
+		-I$(KERNEL_SRC)/../private/google-modules/power/mitigation
 
 ifeq ($(KBUILD_EXTMOD),)
 # in-tree

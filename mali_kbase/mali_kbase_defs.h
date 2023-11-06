@@ -133,17 +133,6 @@
  */
 #define KBASE_RT_THREAD_PRIO (2)
 
-/* TODO(b/181145264) get the following two numbers from device tree */
-/**
- * First CPU in the contiguous CPU mask used for realtime worker threads.
- */
-#define KBASE_RT_THREAD_CPUMASK_MIN (0)
-
-/**
- * Last CPU in the contiguous CPU mask used for realtime worker threads.
- */
-#define KBASE_RT_THREAD_CPUMASK_MAX (3)
-
 /**
  * Minimum allowed wake duration in usec for apc request.
  */
@@ -888,6 +877,7 @@ struct kbase_mem_migrate {
  * @reg_size:              Size of the region containing GPU registers
  * @reg:                   Kernel virtual address of the region containing GPU
  *                         registers, using which Driver will access the registers.
+ * @uclamp_rt:             UClamp min and max values for RT threads spawned
  * @irqs:                  Array containing IRQ resource info for 3 types of
  *                         interrupts : Job scheduling, MMU & GPU events (like
  *                         power management, cache etc.)
@@ -1227,6 +1217,11 @@ struct kbase_device {
 	u64 reg_start;
 	size_t reg_size;
 	void __iomem *reg;
+
+	struct {
+		int min;
+		int max;
+	} uclamp_rt;
 
 	struct {
 		int irq;
