@@ -858,7 +858,9 @@ static int gpu_dvfs_set_initial_level(struct kbase_device *kbdev)
 int gpu_dvfs_init(struct kbase_device *kbdev)
 {
 	int i, ret = 0;
-	int of_data_int_array[OF_DATA_NUM_MAX];
+#if MALI_USE_CSF
+	u32 of_data_int_array[2];
+#endif /* MALI_USE_CSF*/
 	struct pixel_context *pc = kbdev->platform_context;
 	struct device_node *np = kbdev->dev->of_node;
 
@@ -918,7 +920,7 @@ int gpu_dvfs_init(struct kbase_device *kbdev)
 	}
 	pc->dvfs.tunable.mcu_down_util_scale_num = of_data_int_array[0];
 	pc->dvfs.tunable.mcu_down_util_scale_den = of_data_int_array[1];
-#endif
+#endif /* MALI_USE_CSF*/
 
 	/* Setup dvfs step up value */
 	if (of_property_read_u32(np, "gpu_dvfs_step_up_val", &pc->dvfs.step_up_val)) {
