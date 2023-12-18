@@ -1654,6 +1654,7 @@ struct kbase_csf_user_reg {
  *                           kbase_queue.pending_kick_link.
  * @quirks_ext:             Pointer to an allocated buffer containing the firmware
  *                          workarounds configuration.
+ * @pmode_sync_sem:         RW Semaphore to prevent MMU operations during P.Mode entrance.
  */
 struct kbase_csf_device {
 	struct kbase_mmu_table mcu_mmu;
@@ -1710,6 +1711,7 @@ struct kbase_csf_device {
 	struct list_head pending_gpuq_kicks[KBASE_QUEUE_GROUP_PRIORITY_COUNT];
 	spinlock_t pending_gpuq_kicks_lock;
 	u32 *quirks_ext;
+	struct rw_semaphore pmode_sync_sem;
 };
 
 /**
