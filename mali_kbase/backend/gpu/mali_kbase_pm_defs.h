@@ -231,6 +231,8 @@ union kbase_pm_policy_data {
  *                                .state is populated.
  * @KBASE_PM_LOG_EVENT_CORES: a transition of core availability.
  *                            .cores is populated.
+ * @KBASE_PM_LOG_EVENT_DVFS_CHANGE: a transition of DVFS frequency
+ *                                  .dvfs is populated.
  *
  * Each event log event has a type which determines the data it carries.
  */
@@ -239,7 +241,8 @@ enum kbase_pm_log_event_type {
 	KBASE_PM_LOG_EVENT_SHADERS_STATE,
 	KBASE_PM_LOG_EVENT_L2_STATE,
 	KBASE_PM_LOG_EVENT_MCU_STATE,
-	KBASE_PM_LOG_EVENT_CORES
+	KBASE_PM_LOG_EVENT_CORES,
+	KBASE_PM_LOG_EVENT_DVFS_CHANGE,
 };
 
 /**
@@ -257,6 +260,11 @@ struct kbase_pm_event_log_event {
 			u8 prev;
 		} state;
 		struct {
+			u64 domain;
+			u64 next;
+			u64 prev;
+		} dvfs;
+		struct {
 			u64 l2;
 			u64 shader;
 			u64 tiler;
@@ -268,7 +276,7 @@ struct kbase_pm_event_log_event {
 #define EVENT_LOG_MAX (PAGE_SIZE / sizeof(struct kbase_pm_event_log_event))
 
 struct kbase_pm_event_log {
-	u32 last_event;
+	atomic_t last_event;
 	struct kbase_pm_event_log_event events[EVENT_LOG_MAX];
 };
 

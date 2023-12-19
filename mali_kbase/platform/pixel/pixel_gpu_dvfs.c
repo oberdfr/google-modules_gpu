@@ -19,6 +19,7 @@
 
 /* Mali core includes */
 #include <mali_kbase.h>
+#include <backend/gpu/mali_kbase_pm_event_log.h>
 #include <backend/gpu/mali_kbase_pm_internal.h>
 
 /* Pixel integration includes */
@@ -50,8 +51,15 @@ static int gpu_dvfs_set_freq(struct kbase_device *kbdev, enum gpu_dvfs_clk_index
 {
 #if IS_ENABLED(CONFIG_CAL_IF)
 	struct pixel_context *pc = kbdev->platform_context;
+	struct kbase_pm_event_log_event *event = NULL;
 
 	lockdep_assert_held(&pc->pm.domain->access_lock);
+
+	event = kbase_pm_add_log_event(kbdev);
+	event->type = KBASE_PM_LOG_EVENT_DVFS_CHANGE;
+	event->dvfs.domain = domain;
+	event->dvfs.prev = pc->dvfs.table[pc->dvfs.level].clk[domain];
+	event->dvfs.next = pc->dvfs.table[level].clk[domain];
 
 	return cal_dfs_set_rate(pc->dvfs.clks[domain].cal_id, pc->dvfs.table[level].clk[domain]);
 #else
