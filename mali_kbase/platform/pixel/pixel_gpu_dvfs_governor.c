@@ -64,6 +64,7 @@ static int gpu_dvfs_governor_basic(struct kbase_device *kbdev,
 	return level;
 }
 
+#if MALI_USE_CSF
 /**
  * gpu_dvfs_governor_quickstep_use_mcu_util() - The evaluation function for &GPU_DVFS_GOVERNOR_QUICKSTEP_USE_MCU.
  *
@@ -156,6 +157,7 @@ gpu_dvfs_governor_quickstep_use_mcu_util(struct kbase_device *kbdev,
 
 	return level;
 }
+#endif
 
 /**
  * gpu_dvfs_governor_quickstep() - The evaluation function for &GPU_DVFS_GOVERNOR_QUICKSTEP.

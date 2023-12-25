@@ -840,6 +840,7 @@ void kbasep_js_kctx_term(struct kbase_context *kctx)
 	kbdev = kctx->kbdev;
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 
+	js_kctx_info = &kctx->jctx.sched_info;
 	/* The caller must de-register all jobs before calling this */
 	KBASE_DEBUG_ASSERT(!kbase_ctx_flag(kctx, KCTX_SCHEDULED));
 	KBASE_DEBUG_ASSERT(js_kctx_info->ctx.nr_jobs == 0);

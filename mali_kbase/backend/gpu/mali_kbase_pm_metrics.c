@@ -435,12 +435,14 @@ KBASE_EXPORT_TEST_API(kbase_pm_get_dvfs_metrics);
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 void kbase_pm_get_dvfs_action(struct kbase_device *kbdev)
 {
-	int utilisation, mcu_utilisation;
+	int utilisation;
 	struct kbasep_pm_metrics *diff;
 #if !MALI_USE_CSF
 	int busy;
 	int util_gl_share;
 	int util_cl_share[2];
+#else
+	int mcu_utilisation;
 #endif
 
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
@@ -453,9 +455,6 @@ void kbase_pm_get_dvfs_action(struct kbase_device *kbdev)
 	utilisation = (100 * diff->time_busy) /
 			max(diff->time_busy + diff->time_idle, 1u);
 
-	mcu_utilisation = (100 * diff->busy_mcu) /
-			  max(diff->busy_mcu + diff->idle_mcu, 1u);
-
 #if !MALI_USE_CSF
 	busy = max(diff->busy_gl + diff->busy_cl[0] + diff->busy_cl[1], 1u);
 
@@ -466,6 +465,9 @@ void kbase_pm_get_dvfs_action(struct kbase_device *kbdev)
 	kbase_platform_dvfs_event(kbdev, utilisation, util_gl_share,
 				  util_cl_share);
 #else
+	mcu_utilisation = (100 * diff->busy_mcu) /
+			  max(diff->busy_mcu + diff->idle_mcu, 1u);
+
 	/* Note that, at present, we don't pass protected-mode time to the
 	 * platform here. It's unlikely to be useful, however, as the platform
 	 * probably just cares whether the GPU is busy or not; time in
