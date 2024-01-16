@@ -730,8 +730,14 @@ static int validate_and_parse_dvfs_table(struct kbase_device *kbdev, int dvfs_ta
 		gpu_dvfs_table[i].qos.cpu1_min = of_data_int_array[idx + 8];
 		gpu_dvfs_table[i].qos.cpu2_max = of_data_int_array[idx + 9];
 #if MALI_USE_CSF
-		gpu_dvfs_table[i].mcu_util_min = of_data_int_array[idx + 10];
-		gpu_dvfs_table[i].mcu_util_max = of_data_int_array[idx + 11];
+		if (dvfs_table_col_num >= 12) {
+			gpu_dvfs_table[i].mcu_util_min = of_data_int_array[idx + 10];
+			gpu_dvfs_table[i].mcu_util_max = of_data_int_array[idx + 11];
+		} else {
+			dev_info(kbdev->dev, "mcu_util_min/max not set, default to 0/100.");
+			gpu_dvfs_table[i].mcu_util_min = 0;
+			gpu_dvfs_table[i].mcu_util_max = 100;
+		}
 #endif
 
 		/* Handle case where CPU cluster 2 has no limit set */
@@ -921,19 +927,23 @@ int gpu_dvfs_init(struct kbase_device *kbdev)
 	/* Set up DVFS perf tuning variables */
 	if (of_property_read_u32_array(np, "mcu_protm_scale", of_data_int_array,
 				       2)) {
-		ret = -EINVAL;
-		goto done;
+		dev_info(kbdev->dev, "mcu_protm_scale not set, default to 1/1.");
+		pc->dvfs.tunable.mcu_protm_scale_num = 1;
+		pc->dvfs.tunable.mcu_protm_scale_den = 1;
+	} else {
+		pc->dvfs.tunable.mcu_protm_scale_num = of_data_int_array[0];
+		pc->dvfs.tunable.mcu_protm_scale_den = of_data_int_array[1];
 	}
-	pc->dvfs.tunable.mcu_protm_scale_num = of_data_int_array[0];
-	pc->dvfs.tunable.mcu_protm_scale_den = of_data_int_array[1];
 
 	if (of_property_read_u32_array(np, "mcu_down_util_scale",
 				       of_data_int_array, 2)) {
-		ret = -EINVAL;
-		goto done;
+		dev_info(kbdev->dev, "mcu_down_util_scale not set, default to 1/1.");
+		pc->dvfs.tunable.mcu_down_util_scale_num = 1;
+		pc->dvfs.tunable.mcu_down_util_scale_den = 1;
+	} else {
+		pc->dvfs.tunable.mcu_down_util_scale_num = of_data_int_array[0];
+		pc->dvfs.tunable.mcu_down_util_scale_den = of_data_int_array[1];
 	}
-	pc->dvfs.tunable.mcu_down_util_scale_num = of_data_int_array[0];
-	pc->dvfs.tunable.mcu_down_util_scale_den = of_data_int_array[1];
 #endif /* MALI_USE_CSF*/
 
 	/* Setup dvfs step up value */
