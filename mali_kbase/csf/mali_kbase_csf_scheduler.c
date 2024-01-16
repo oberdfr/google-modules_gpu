@@ -4646,9 +4646,8 @@ static void scheduler_apply(struct kbase_device *kbdev)
 		group = scheduler->csg_slots[i].resident_group;
 		if (group) {
 			resident_cnt++;
-			if (group->prepared_seq_num >= available_csg_slots) {
+			if (group->prepared_seq_num >= available_csg_slots)
 				suspend_queue_group(group);
-			}
 		}
 	}
 

@@ -87,6 +87,7 @@
 #include <linux/errno.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
+#include <linux/of_irq.h>
 #include <linux/platform_device.h>
 #include <linux/of_platform.h>
 #include <linux/miscdevice.h>
@@ -4934,9 +4935,9 @@ int power_control_init(struct kbase_device *kbdev)
 	unsigned int i;
 #if defined(CONFIG_REGULATOR)
 	static const char * const regulator_names[] = {
-		"mali", "shadercores"
+		"mali", "shadercores", NULL
 	};
-	BUILD_BUG_ON(ARRAY_SIZE(regulator_names) < BASE_MAX_NR_CLOCKS_REGULATORS);
+	BUILD_BUG_ON(ARRAY_SIZE(regulator_names) - 1 < BASE_MAX_NR_CLOCKS_REGULATORS);
 #endif /* CONFIG_REGULATOR */
 
 	if (!kbdev)
@@ -5028,8 +5029,8 @@ int power_control_init(struct kbase_device *kbdev)
 	}
 #elif (KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE)
 	if (kbdev->nr_regulators > 0) {
-		kbdev->opp_table = dev_pm_opp_set_regulators(kbdev->dev,
-			regulator_names, BASE_MAX_NR_CLOCKS_REGULATORS);
+		kbdev->opp_token = dev_pm_opp_set_regulators(kbdev->dev,
+			regulator_names);
 
 		if (IS_ERR(kbdev->opp_table)) {
 			err = PTR_ERR(kbdev->opp_table);
@@ -5043,8 +5044,7 @@ int power_control_init(struct kbase_device *kbdev)
 #endif /* CONFIG_PM_OPP */
 	return 0;
 
-#if defined(CONFIG_PM_OPP) &&                                                                      \
-	((KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE) && defined(CONFIG_REGULATOR))
+#if defined(CONFIG_PM_OPP) && defined(CONFIG_REGULATOR)
 regulators_probe_defer:
 	for (i = 0; i < BASE_MAX_NR_CLOCKS_REGULATORS; i++) {
 		if (kbdev->clocks[i]) {
@@ -6479,6 +6479,7 @@ module_init(kbase_driver_init);
 module_exit(kbase_driver_exit);
 #endif
 MODULE_LICENSE("GPL");
+MODULE_IMPORT_NS(DMA_BUF);
 MODULE_VERSION(MALI_RELEASE_NAME " (UK version " \
 		__stringify(BASE_UK_VERSION_MAJOR) "." \
 		__stringify(BASE_UK_VERSION_MINOR) ")");

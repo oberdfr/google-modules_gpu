@@ -55,8 +55,7 @@ endif
 # Use our defines when compiling, and include mali platform module headers
 ccflags-y += \
     $(DEFINES) \
-    -I$(src)/../common/include \
-    -I$(srctree)/include/linux
+    -I$(src)/../common/include
 
 # Add kernel module target if any of our config options is enabled
 ifneq ($(mali_pixel-objs),)

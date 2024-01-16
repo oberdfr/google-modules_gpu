@@ -841,6 +841,7 @@ void kbasep_js_kctx_term(struct kbase_context *kctx)
 	KBASE_DEBUG_ASSERT(kbdev != NULL);
 
 	js_kctx_info = &kctx->jctx.sched_info;
+
 	/* The caller must de-register all jobs before calling this */
 	KBASE_DEBUG_ASSERT(!kbase_ctx_flag(kctx, KCTX_SCHEDULED));
 	KBASE_DEBUG_ASSERT(js_kctx_info->ctx.nr_jobs == 0);
@@ -1948,7 +1949,6 @@ static kbasep_js_release_result kbasep_js_runpool_release_ctx_internal(
 	/* Ensure context really is scheduled in */
 	KBASE_DEBUG_ASSERT(kbase_ctx_flag(kctx, KCTX_SCHEDULED));
 
-	KBASE_DEBUG_ASSERT(kctx_as_nr != KBASEP_AS_NR_INVALID);
 	KBASE_DEBUG_ASSERT(atomic_read(&kctx->refcount) > 0);
 
 	/*
@@ -1959,7 +1959,6 @@ static kbasep_js_release_result kbasep_js_runpool_release_ctx_internal(
 	rt_mutex_lock(&kbdev->pm.lock);
 	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
 
-	KBASE_DEBUG_ASSERT(kctx_as_nr == kctx->as_nr);
 	KBASE_DEBUG_ASSERT(atomic_read(&kctx->refcount) > 0);
 
 	/* Update refcount */
@@ -4139,11 +4138,6 @@ void kbase_js_zap_context(struct kbase_context *kctx)
 		 * somewhere will be removing the context later on
 		 */
 		kbase_ctx_sched_inc_refcount_nolock(kctx);
-
-		/* Since it's scheduled and we have the jsctx_mutex, it must be
-		 * retained successfully
-		 */
-		KBASE_DEBUG_ASSERT(was_retained);
 
 		dev_dbg(kbdev->dev, "Zap: Ctx %pK Kill Any Running jobs", kctx);
 

@@ -889,7 +889,7 @@ struct kbase_mem_migrate {
  * @regulators:            Pointer to the structs corresponding to the
  *                         regulators referenced by the GPU device node.
  * @nr_regulators:         Number of regulators set in the regulators array.
- * @opp_table:             Pointer to the device OPP structure maintaining the
+ * @opp_token:             Token linked to the device OPP structure maintaining the
  *                         link to OPPs attached to a device. This is obtained
  *                         after setting regulator names for the device.
  * @token:                 Integer replacement for opp_table in kernel versions
