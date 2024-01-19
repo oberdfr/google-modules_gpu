@@ -25,9 +25,6 @@
 #include <csf/mali_kbase_csf_firmware_cfg.h>
 #endif
 
-/* We need this include due to the removal from mali_kbase.h */
-#include <mali_kbase_hwaccess_pm.h>
-
 /* Pixel integration includes */
 #include "mali_kbase_config_platform.h"
 #include "pixel_gpu_control.h"
