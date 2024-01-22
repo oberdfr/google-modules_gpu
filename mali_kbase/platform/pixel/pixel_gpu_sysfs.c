@@ -778,6 +778,76 @@ static ssize_t hint_power_on_store(struct device *dev, struct device_attribute *
 }
 #endif
 
+#if MALI_USE_CSF
+static ssize_t capacity_headroom_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct kbase_device *kbdev = dev->driver_data;
+	struct pixel_context *pc = kbdev->platform_context;
+
+	if (!pc)
+		return -ENODEV;
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n",
+		pc->dvfs.capacity_headroom);
+}
+
+static ssize_t capacity_headroom_store(struct device *dev, struct device_attribute *attr,
+	const char *buf, size_t count)
+{
+	struct kbase_device *kbdev = dev->driver_data;
+	struct pixel_context *pc = kbdev->platform_context;
+	int capacity_headroom = 0;
+
+	if (!pc)
+		return -ENODEV;
+
+	if (kstrtoint(buf, 0, &capacity_headroom))
+		return -EINVAL;
+
+	mutex_lock(&pc->dvfs.lock);
+	pc->dvfs.capacity_headroom = capacity_headroom;
+	mutex_unlock(&pc->dvfs.lock);
+	trace_clock_set_rate("cap_headroom", capacity_headroom, raw_smp_processor_id());
+
+	return count;
+}
+
+static ssize_t capacity_history_depth_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct kbase_device *kbdev = dev->driver_data;
+	struct pixel_context *pc = kbdev->platform_context;
+
+	if (!pc)
+		return -ENODEV;
+
+	return scnprintf(buf, PAGE_SIZE, "%u\n",
+		(unsigned int)pc->dvfs.capacity_history_depth);
+}
+
+static ssize_t capacity_history_depth_store(struct device *dev, struct device_attribute *attr,
+	const char *buf, size_t count)
+{
+	struct kbase_device *kbdev = dev->driver_data;
+	struct pixel_context *pc = kbdev->platform_context;
+	unsigned int capacity_history_depth = 0;
+
+	if (!pc)
+		return -ENODEV;
+
+	if (kstrtouint(buf, 0, &capacity_history_depth))
+		return -EINVAL;
+
+	if (capacity_history_depth == 0 || capacity_history_depth > ARRAY_SIZE(pc->dvfs.capacity_history))
+		return -EINVAL;
+
+	mutex_lock(&pc->dvfs.lock);
+	pc->dvfs.capacity_history_depth = (u8)capacity_history_depth;
+	mutex_unlock(&pc->dvfs.lock);
+
+	return count;
+}
+#endif
+
 /* Define devfreq-like attributes */
 DEVICE_ATTR_RO(available_frequencies);
 DEVICE_ATTR_RO(cur_freq);
@@ -795,6 +865,10 @@ DEVICE_ATTR_RW(governor);
 DEVICE_ATTR_RW(ifpo);
 #if MALI_USE_CSF
 DEVICE_ATTR_WO(hint_power_on);
+#endif
+#if MALI_USE_CSF
+DEVICE_ATTR_RW(capacity_headroom);
+DEVICE_ATTR_RW(capacity_history_depth);
 #endif
 
 /* Initialization code */
@@ -831,6 +905,8 @@ static struct {
 	{ "trigger_core_dump", &dev_attr_trigger_core_dump },
 	{ "ifpo", &dev_attr_ifpo },
 #if MALI_USE_CSF
+	{ "capacity_headroom", &dev_attr_capacity_headroom },
+	{ "capacity_history_depth", &dev_attr_capacity_history_depth },
 	{ "hint_power_on", &dev_attr_hint_power_on },
 #endif
 };
