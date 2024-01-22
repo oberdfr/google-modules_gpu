@@ -392,6 +392,9 @@ struct pixel_context {
 		int table_size;
 		int step_up_val;
 		int level;
+#if MALI_USE_CSF
+		int level_before_headroom;
+#endif
 		int level_target;
 		int level_max;
 		int level_min;
@@ -399,6 +402,12 @@ struct pixel_context {
 		int level_scaling_min;
 		int level_scaling_compute_min;
 		struct gpu_dvfs_level_lock level_locks[GPU_DVFS_LEVEL_LOCK_COUNT];
+#if MALI_USE_CSF
+		u32 capacity_headroom;
+		u32 capacity_history[8];
+		u8 capacity_history_depth;
+		u8 capacity_history_index;
+#endif
 
 		struct {
 			enum gpu_dvfs_governor_type curr;
