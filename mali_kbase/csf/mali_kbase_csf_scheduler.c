@@ -7176,7 +7176,6 @@ static void check_group_sync_update_worker(struct kthread_work *work)
 		/* Wait for sleep transition to complete to ensure the
 		 * CS_STATUS_WAIT registers are updated by the MCU.
 		 */
-		kbase_pm_wait_for_desired_state(kbdev);
 		check_sync_update_in_sleep_mode(kbdev);
 	}
 

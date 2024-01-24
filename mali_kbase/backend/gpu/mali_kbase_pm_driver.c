@@ -1185,7 +1185,9 @@ static int kbase_pm_mcu_update_state(struct kbase_device *kbdev)
 			break;
 
 		case KBASE_MCU_POWER_DOWN:
-			if (kbase_hw_has_issue(kbdev, BASE_HW_ISSUE_TITANHW_2922)) {
+                        // b/321195074 - Disabling the WA until regressions are
+                        // resolved.
+			if (kbase_hw_has_issue(kbdev, BASE_HW_ISSUE_TITANHW_2922) && false) {
 				if (!kbdev->csf.firmware_hctl_core_pwr)
 					kbasep_pm_toggle_power_interrupt(kbdev, true);
 				backend->mcu_state = KBASE_MCU_OFF;
