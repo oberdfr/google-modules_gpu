@@ -45,7 +45,9 @@ enum gpu_dvfs_clk_index {
  */
 struct gpu_dvfs_clk {
 	enum gpu_dvfs_clk_index index;
+#if IS_ENABLED(CONFIG_CAL_IF)
 	int cal_id;
+#endif /* IS_ENABLED(CONFIG_CAL_IF) */
 	struct blocking_notifier_head notifier;
 };
 
@@ -54,12 +56,16 @@ struct gpu_dvfs_clk {
 /**
  * struct gpu_dvfs_utlization - Stores utilization statistics
  *
- * @util:    Overall utilization of the GPU
- * @util_gl: The share of utilization due to non-OpenCL work
- * @util_cl: The share of utilization due ot OpenCL work
+ * @util:     Overall utilization of the GPU
+ * @mcu_util: Utilization of the MCU
+ * @util_gl:  The share of utilization due to non-OpenCL work
+ * @util_cl:  The share of utilization due ot OpenCL work
  */
 struct gpu_dvfs_utlization {
 	int util;
+#if MALI_USE_CSF
+	int mcu_util;
+#endif
 	int util_gl;
 	int util_cl;
 };
@@ -106,6 +112,10 @@ enum gpu_dvfs_governor_type {
 	 */
 	GPU_DVFS_GOVERNOR_BASIC = 0,
 	GPU_DVFS_GOVERNOR_QUICKSTEP,
+#if MALI_USE_CSF
+	GPU_DVFS_GOVERNOR_QUICKSTEP_USE_MCU,
+	GPU_DVFS_GOVERNOR_CAPACITY_USE_MCU,
+#endif
 	/* Insert new governors here */
 	GPU_DVFS_GOVERNOR_COUNT,
 	GPU_DVFS_GOVERNOR_INVALID,
@@ -298,12 +308,20 @@ void gpu_tmu_term(struct kbase_device *kbdev);
  * restrictive than an earlier one, the value from the later lock is selected.
  */
 enum gpu_dvfs_level_lock_type {
+#if IS_ENABLED(CONFIG_CAL_IF)
+	/**
+	 * &GPU_DVFS_LEVEL_LOCK_ECT: ECT lock
+	 *
+	 * This lock is based on Fmax and Fmin obtained from ECT table of the chip.
+	 */
+	GPU_DVFS_LEVEL_LOCK_ECT,
+#endif /* CONFIG_CAL_IF */
 	/**
 	 * &GPU_DVFS_LEVEL_LOCK_DEVICETREE: Devicetree lock
 	 *
 	 * This lock is used to enforce scaling limits set as part of the GPU device tree entry.
 	 */
-	GPU_DVFS_LEVEL_LOCK_DEVICETREE = 0,
+	GPU_DVFS_LEVEL_LOCK_DEVICETREE,
 	/**
 	 * &GPU_DVFS_LEVEL_LOCK_COMPUTE: Compute lock
 	 *
@@ -334,6 +352,16 @@ enum gpu_dvfs_level_lock_type {
 	 */
 	GPU_DVFS_LEVEL_LOCK_THERMAL,
 #endif /* CONFIG_MALI_PIXEL_GPU_THERMAL */
+#if IS_ENABLED(CONFIG_GOOGLE_BCL)
+	/**
+	 * &GPU_DVFS_LEVEL_LOCK_BCL: Battery current limitation mitigation lock
+	 *
+	 * This lock is set when the system is in a current limited situation where the GPU frequency
+         * needs to be controlled to stay in control of the maximum amount of current the battery
+         * can deliver.
+	 */
+	GPU_DVFS_LEVEL_LOCK_BCL,
+#endif /* CONFIG_GOOGLE_BCL */
 	/* Insert new level locks here */
 	GPU_DVFS_LEVEL_LOCK_COUNT,
 };

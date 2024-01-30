@@ -31,7 +31,7 @@
  */
 static inline void qos_reset(struct gpu_dvfs_qos_vote *vote) {
 	if (unlikely(vote->enabled)) {
-		exynos_pm_qos_update_request(&vote->req, EXYNOS_PM_QOS_DEFAULT_VALUE);
+		exynos_pm_qos_update_request_async(&vote->req, EXYNOS_PM_QOS_DEFAULT_VALUE);
 		vote->enabled = false;
 	}
 }
@@ -44,7 +44,7 @@ static inline void qos_reset(struct gpu_dvfs_qos_vote *vote) {
  */
 static inline void qos_set(struct gpu_dvfs_qos_vote *vote, int value) {
 	if (unlikely(value)) {
-		exynos_pm_qos_update_request(&vote->req, value);
+		exynos_pm_qos_update_request_async(&vote->req, value);
 		vote->enabled = true;
 	}
 	else {
@@ -182,7 +182,9 @@ int gpu_dvfs_qos_init(struct kbase_device *kbdev)
 	dev_dbg(kbdev->dev, "GPU QOS initialized\n");
 	ret = 0;
 
+#ifdef CONFIG_MALI_PIXEL_GPU_BTS
 done:
+#endif /* CONFIG_MALI_PIXEL_GPU_BTS */
 	return ret;
 }
 
@@ -193,7 +195,9 @@ done:
  */
 void gpu_dvfs_qos_term(struct kbase_device *kbdev)
 {
+#if IS_ENABLED(CONFIG_EXYNOS_PMU_IF) || defined(CONFIG_MALI_PIXEL_GPU_BTS)
 	struct pixel_context *pc = kbdev->platform_context;
+#endif
 
 	exynos_pm_qos_remove_request(&pc->dvfs.qos.int_min.req);
 	exynos_pm_qos_remove_request(&pc->dvfs.qos.mif_min.req);

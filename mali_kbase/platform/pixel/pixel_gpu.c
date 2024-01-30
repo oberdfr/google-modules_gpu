@@ -25,9 +25,6 @@
 #include <csf/mali_kbase_csf_firmware_cfg.h>
 #endif
 
-/* We need this include due to the removal from mali_kbase.h */
-#include <mali_kbase_hwaccess_pm.h>
-
 /* Pixel integration includes */
 #include "mali_kbase_config_platform.h"
 #include "pixel_gpu_control.h"
@@ -186,6 +183,7 @@ static int gpu_fw_cfg_init(struct kbase_device *kbdev) {
 static int gpu_pixel_kctx_init(struct kbase_context *kctx)
 {
 	struct kbase_device* kbdev = kctx->kbdev;
+	struct pixel_platform_data *platform_data;
 	int err;
 
 	kctx->platform_data = kzalloc(sizeof(struct pixel_platform_data), GFP_KERNEL);
@@ -194,6 +192,9 @@ static int gpu_pixel_kctx_init(struct kbase_context *kctx)
 		err = -ENOMEM;
 		goto done;
 	}
+
+	platform_data = kctx->platform_data;
+	platform_data->kctx = kctx;
 
 	err = gpu_dvfs_kctx_init(kctx);
 	if (err) {
@@ -225,7 +226,51 @@ static void gpu_pixel_kctx_term(struct kbase_context *kctx)
 	kctx->platform_data = NULL;
 }
 
+#ifdef CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL
+/**
+ * gpu_s2mpu_init - Initialize S2MPU for G3D
+ *
+ * @kbdev: The &struct kbase_device for the GPU.
+ *
+ * Return: On success, returns 0. On failure an error code is returned.
+ */
+static int gpu_s2mpu_init(struct kbase_device *kbdev)
+{
+	int ret = 0;
+	struct device_node *np;
+	struct platform_device *pdev;
+
+	/*
+	 * We expect "s2mpus" entry in device tree to point to gpu s2mpu device
+	 */
+	np = of_parse_phandle(kbdev->dev->of_node, "s2mpus", 0);
+	if (!np) {
+		dev_err(kbdev->dev, "No 's2mpus' entry found in the device tree\n");
+		ret = -ENODEV;
+		goto done;
+	}
+
+	pdev = of_find_device_by_node(np);
+	of_node_put(np);
+	if (!pdev) {
+		dev_err(kbdev->dev, "No device specified in 's2mpus' device node\n");
+		ret = -ENODEV;
+		goto done;
+	}
+
+	kbdev->s2mpu_dev = &pdev->dev;
+	dev_info(kbdev->dev, "s2mpu device %s successfully configured\n",
+				dev_name(kbdev->s2mpu_dev));
+
+done:
+	return ret;
+}
+#endif /* CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL */
+
 static const struct kbase_device_init dev_init[] = {
+#ifdef CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL
+	{ gpu_s2mpu_init, NULL, "S2MPU init failed" },
+#endif /* CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL */
 	{ gpu_pm_init, gpu_pm_term, "PM init failed" },
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 	{ gpu_dvfs_init, gpu_dvfs_term, "DVFS init failed" },
@@ -308,10 +353,14 @@ static void gpu_pixel_term(struct kbase_device *kbdev)
 struct kbase_platform_funcs_conf platform_funcs = {
 	.platform_init_func = &gpu_pixel_init,
 	.platform_term_func = &gpu_pixel_term,
+#ifdef CONFIG_MALI_MIDGARD_DVFS
 	.platform_handler_context_init_func = &gpu_pixel_kctx_init,
 	.platform_handler_context_term_func = &gpu_pixel_kctx_term,
 	.platform_handler_work_begin_func = &gpu_dvfs_metrics_work_begin,
 	.platform_handler_work_end_func = &gpu_dvfs_metrics_work_end,
+#endif /* CONFIG_MALI_MIDGARD_DVFS */
+	.platform_handler_context_active = &gpu_slc_kctx_active,
+	.platform_handler_context_idle = &gpu_slc_kctx_idle,
 	.platform_fw_cfg_init_func = &gpu_fw_cfg_init,
 	.platform_handler_core_dump_func = &gpu_sscd_dump,
 };

@@ -29,9 +29,11 @@ CONFIG_MALI_PIXEL_GPU_SLC=y
 
 mali_pixel-objs :=
 
-ifeq ($(CONFIG_MALI_PIXEL_STATS),m)
-	DEFINES += -DCONFIG_MALI_PIXEL_STATS
-	mali_pixel-objs += mali_pixel_stats.o
+ifeq ($(CONFIG_PIXEL_STAT),m)
+	ifeq ($(CONFIG_MALI_PIXEL_STATS),m)
+		DEFINES += -DCONFIG_MALI_PIXEL_STATS
+		mali_pixel-objs += mali_pixel_stats.o
+	endif
 endif
 
 ifeq ($(CONFIG_MALI_MEMORY_GROUP_MANAGER),m)

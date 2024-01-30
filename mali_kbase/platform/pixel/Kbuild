@@ -31,6 +31,9 @@ mali_kbase-$(CONFIG_MALI_MIDGARD_DVFS) += \
 	platform/$(MALI_PLATFORM_DIR)/pixel_gpu_dvfs_metrics.o \
 	platform/$(MALI_PLATFORM_DIR)/pixel_gpu_sysfs.o
 
+mali_kbase-$(CONFIG_MALI_PIXEL_GPU_PM) += \
+	platform/$(MALI_PLATFORM_DIR)/pixel_gpu_power.o
+
 mali_kbase-$(CONFIG_MALI_PIXEL_GPU_QOS) += \
 	platform/$(MALI_PLATFORM_DIR)/pixel_gpu_dvfs_qos.o
 

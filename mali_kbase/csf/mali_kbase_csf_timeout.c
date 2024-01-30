@@ -51,7 +51,7 @@ static int set_timeout(struct kbase_device *const kbdev, u64 const timeout)
 
 	dev_dbg(kbdev->dev, "New progress timeout: %llu cycles\n", timeout);
 
-	atomic64_set(&kbdev->csf.progress_timeout, (s64)timeout);
+	atomic64_set(&kbdev->csf.progress_timeout, timeout);
 	kbase_device_set_timeout(kbdev, CSF_SCHED_PROTM_PROGRESS_TIMEOUT, timeout, 1);
 
 	return 0;
@@ -72,14 +72,13 @@ static int set_timeout(struct kbase_device *const kbdev, u64 const timeout)
  *
  * Return: @count if the function succeeded. An error code on failure.
  */
-static ssize_t progress_timeout_store(struct device *const dev, struct device_attribute *const attr,
-				      const char *const buf, size_t const count)
+static ssize_t progress_timeout_store(struct device * const dev,
+		struct device_attribute * const attr, const char * const buf,
+		size_t const count)
 {
 	struct kbase_device *const kbdev = dev_get_drvdata(dev);
 	int err;
 	u64 timeout;
-
-	CSTD_UNUSED(attr);
 
 	if (!kbdev)
 		return -ENODEV;
@@ -93,8 +92,9 @@ static ssize_t progress_timeout_store(struct device *const dev, struct device_at
 
 	err = kstrtou64(buf, 0, &timeout);
 	if (err)
-		dev_err(kbdev->dev, "Couldn't process progress_timeout write operation.\n"
-				    "Use format <progress_timeout>\n");
+		dev_err(kbdev->dev,
+			"Couldn't process progress_timeout write operation.\n"
+			"Use format <progress_timeout>\n");
 	else
 		err = set_timeout(kbdev, timeout);
 
@@ -112,7 +112,7 @@ static ssize_t progress_timeout_store(struct device *const dev, struct device_at
 	if (err)
 		return err;
 
-	return (ssize_t)count;
+	return count;
 }
 
 /**
@@ -125,13 +125,11 @@ static ssize_t progress_timeout_store(struct device *const dev, struct device_at
  *
  * Return: The number of bytes output to @buf.
  */
-static ssize_t progress_timeout_show(struct device *const dev, struct device_attribute *const attr,
-				     char *const buf)
+static ssize_t progress_timeout_show(struct device * const dev,
+		struct device_attribute * const attr, char * const buf)
 {
 	struct kbase_device *const kbdev = dev_get_drvdata(dev);
 	int err;
-
-	CSTD_UNUSED(attr);
 
 	if (!kbdev)
 		return -ENODEV;
@@ -139,6 +137,7 @@ static ssize_t progress_timeout_show(struct device *const dev, struct device_att
 	err = scnprintf(buf, PAGE_SIZE, "%llu\n", kbase_csf_timeout_get(kbdev));
 
 	return err;
+
 }
 
 static DEVICE_ATTR_RW(progress_timeout);
@@ -158,26 +157,28 @@ int kbase_csf_timeout_init(struct kbase_device *const kbdev)
 		err = of_property_read_u64(kbdev->dev->of_node, "progress_timeout", &timeout);
 
 	if (!err)
-		dev_info(kbdev->dev, "Found progress_timeout = %llu in Devicetree\n", timeout);
+		dev_info(kbdev->dev, "Found progress_timeout = %llu in Devicetree\n",
+			timeout);
 #endif
 
 	err = set_timeout(kbdev, timeout);
 	if (err)
 		return err;
 
-	err = sysfs_create_file(&kbdev->dev->kobj, &dev_attr_progress_timeout.attr);
+	err = sysfs_create_file(&kbdev->dev->kobj,
+		&dev_attr_progress_timeout.attr);
 	if (err)
 		dev_err(kbdev->dev, "SysFS file creation failed\n");
 
 	return err;
 }
 
-void kbase_csf_timeout_term(struct kbase_device *const kbdev)
+void kbase_csf_timeout_term(struct kbase_device * const kbdev)
 {
 	sysfs_remove_file(&kbdev->dev->kobj, &dev_attr_progress_timeout.attr);
 }
 
 u64 kbase_csf_timeout_get(struct kbase_device *const kbdev)
 {
-	return (u64)atomic64_read(&kbdev->csf.progress_timeout);
+	return atomic64_read(&kbdev->csf.progress_timeout);
 }

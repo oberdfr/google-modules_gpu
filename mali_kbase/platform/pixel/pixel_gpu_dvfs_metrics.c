@@ -102,9 +102,6 @@ static void gpu_dvfs_metrics_trace_clock(struct kbase_device *kbdev, int old_lev
 		}
 
 	}
-
-	trace_gpu_frequency(clks[GPU_DVFS_CLK_TOP_LEVEL], 0);
-	trace_gpu_frequency(clks[GPU_DVFS_CLK_SHADERS], 1);
 }
 
 /**

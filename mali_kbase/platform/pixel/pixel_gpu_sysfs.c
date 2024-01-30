@@ -16,6 +16,9 @@
 #include "pixel_gpu_sscd.h"
 
 static const char *gpu_dvfs_level_lock_names[GPU_DVFS_LEVEL_LOCK_COUNT] = {
+#if IS_ENABLED(CONFIG_CAL_IF)
+	"ect",
+#endif /* CONFIG_CAL_IF */
 	"devicetree",
 	"compute",
 	"hint",
@@ -23,6 +26,9 @@ static const char *gpu_dvfs_level_lock_names[GPU_DVFS_LEVEL_LOCK_COUNT] = {
 #ifdef CONFIG_MALI_PIXEL_GPU_THERMAL
 	"thermal",
 #endif /* CONFIG_MALI_PIXEL_GPU_THERMAL */
+#if IS_ENABLED(CONFIG_GOOGLE_BCL)
+        "bcl",
+#endif
 };
 
 /* Helper functions */
@@ -161,9 +167,9 @@ static ssize_t dvfs_table_show(struct device *dev, struct device_attribute *attr
 		return -ENODEV;
 
 	ret += scnprintf(buf + ret, PAGE_SIZE - ret,
-		" gpu_0   gpu_0   gpu_1   gpu_1  util util hyste- int_clk  mif_clk cpu0_clk cpu1_clk cpu2_clk\n"
-		"  clk     vol     clk     vol   min  max  resis    min      min     min      min      limit\n"
-		"------- ------- ------- ------- ---- ---- ------ ------- -------- -------- -------- --------\n");
+		" gpu_0   gpu_0   gpu_1   gpu_1  util util hyste- int_clk  mif_clk cpu0_clk cpu1_clk cpu2_clk    mcu      mcu\n"
+		"  clk     vol     clk     vol   min  max  resis    min      min     min      min      limit  down_util up_util\n"
+		"------- ------- ------- ------- ---- ---- ------ ------- -------- -------- -------- -------- --------- -------\n");
 
 	for (i = pc->dvfs.level_max; i <= pc->dvfs.level_min; i++) {
 		ret += scnprintf(buf + ret, PAGE_SIZE - ret,
@@ -181,10 +187,14 @@ static ssize_t dvfs_table_show(struct device *dev, struct device_attribute *attr
 			pc->dvfs.table[i].qos.cpu1_min);
 
 		if (pc->dvfs.table[i].qos.cpu2_max == CPU_FREQ_MAX)
-			ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%8s\n", "none");
+			ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%8s", "none");
 		else
-			ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%8d\n",
+			ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%8d",
 				pc->dvfs.table[i].qos.cpu2_max);
+
+		ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%9d %7d\n",
+			pc->dvfs.table[i].mcu_util_min,
+			pc->dvfs.table[i].mcu_util_max);
 	}
 
 	return ret;
@@ -746,6 +756,97 @@ static ssize_t ifpo_store(struct device *dev, struct device_attribute *attr,
 #endif
 }
 
+#if MALI_USE_CSF
+static ssize_t hint_power_on_store(struct device *dev, struct device_attribute *attr,
+	const char *buf, size_t count)
+{
+	int ret;
+	bool enabled;
+	struct kbase_device *kbdev = dev->driver_data;
+	struct pixel_context *pc = kbdev->platform_context;
+	if (!pc)
+		return -ENODEV;
+
+	ret = strtobool(buf, &enabled);
+	if (ret)
+		return -EINVAL;
+
+	if (enabled)
+		kthread_queue_work(&kbdev->apc.worker, &kbdev->apc.wakeup_csf_scheduler_work);
+
+	return count;
+}
+#endif
+
+#if MALI_USE_CSF
+static ssize_t capacity_headroom_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct kbase_device *kbdev = dev->driver_data;
+	struct pixel_context *pc = kbdev->platform_context;
+
+	if (!pc)
+		return -ENODEV;
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n",
+		pc->dvfs.capacity_headroom);
+}
+
+static ssize_t capacity_headroom_store(struct device *dev, struct device_attribute *attr,
+	const char *buf, size_t count)
+{
+	struct kbase_device *kbdev = dev->driver_data;
+	struct pixel_context *pc = kbdev->platform_context;
+	int capacity_headroom = 0;
+
+	if (!pc)
+		return -ENODEV;
+
+	if (kstrtoint(buf, 0, &capacity_headroom))
+		return -EINVAL;
+
+	mutex_lock(&pc->dvfs.lock);
+	pc->dvfs.capacity_headroom = capacity_headroom;
+	mutex_unlock(&pc->dvfs.lock);
+	trace_clock_set_rate("cap_headroom", capacity_headroom, raw_smp_processor_id());
+
+	return count;
+}
+
+static ssize_t capacity_history_depth_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct kbase_device *kbdev = dev->driver_data;
+	struct pixel_context *pc = kbdev->platform_context;
+
+	if (!pc)
+		return -ENODEV;
+
+	return scnprintf(buf, PAGE_SIZE, "%u\n",
+		(unsigned int)pc->dvfs.capacity_history_depth);
+}
+
+static ssize_t capacity_history_depth_store(struct device *dev, struct device_attribute *attr,
+	const char *buf, size_t count)
+{
+	struct kbase_device *kbdev = dev->driver_data;
+	struct pixel_context *pc = kbdev->platform_context;
+	unsigned int capacity_history_depth = 0;
+
+	if (!pc)
+		return -ENODEV;
+
+	if (kstrtouint(buf, 0, &capacity_history_depth))
+		return -EINVAL;
+
+	if (capacity_history_depth == 0 || capacity_history_depth > ARRAY_SIZE(pc->dvfs.capacity_history))
+		return -EINVAL;
+
+	mutex_lock(&pc->dvfs.lock);
+	pc->dvfs.capacity_history_depth = (u8)capacity_history_depth;
+	mutex_unlock(&pc->dvfs.lock);
+
+	return count;
+}
+#endif
 
 /* Define devfreq-like attributes */
 DEVICE_ATTR_RO(available_frequencies);
@@ -762,6 +863,13 @@ DEVICE_ATTR_RO(trans_stat);
 DEVICE_ATTR_RO(available_governors);
 DEVICE_ATTR_RW(governor);
 DEVICE_ATTR_RW(ifpo);
+#if MALI_USE_CSF
+DEVICE_ATTR_WO(hint_power_on);
+#endif
+#if MALI_USE_CSF
+DEVICE_ATTR_RW(capacity_headroom);
+DEVICE_ATTR_RW(capacity_history_depth);
+#endif
 
 /* Initialization code */
 
@@ -795,7 +903,12 @@ static struct {
 	{ "available_governors", &dev_attr_available_governors },
 	{ "governor", &dev_attr_governor },
 	{ "trigger_core_dump", &dev_attr_trigger_core_dump },
-	{ "ifpo", &dev_attr_ifpo }
+	{ "ifpo", &dev_attr_ifpo },
+#if MALI_USE_CSF
+	{ "capacity_headroom", &dev_attr_capacity_headroom },
+	{ "capacity_history_depth", &dev_attr_capacity_history_depth },
+	{ "hint_power_on", &dev_attr_hint_power_on },
+#endif
 };
 
 /**
