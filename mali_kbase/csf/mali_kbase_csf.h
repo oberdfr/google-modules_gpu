@@ -49,8 +49,6 @@
  */
 #define KBASEP_TICK_PROTM_PEND_SCAN_SEQ_NR_INVALID (U32_MAX)
 
-#define MALI_HOST_CONTROLS_SC_RAILS_IDLE_TIMER_NS (600 * 1000)
-
 /**
  * kbase_csf_ctx_init - Initialize the CSF interface for a GPU address space.
  *

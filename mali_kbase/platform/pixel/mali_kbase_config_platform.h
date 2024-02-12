@@ -353,9 +353,6 @@ struct pixel_context {
 		struct notifier_block qos_nb;
 #endif
 		struct pixel_rail_state_log *rail_state_log;
-#ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
-		bool ifpo_enabled;
-#endif
 		unsigned int firmware_idle_hysteresis_time_ms;
 #ifdef CONFIG_MALI_PIXEL_GPU_SLEEP
 		unsigned int firmware_idle_hysteresis_gpu_sleep_scaler;
