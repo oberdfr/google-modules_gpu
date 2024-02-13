@@ -94,10 +94,9 @@ ifeq ($(CONFIG_MALI_CSF_SUPPORT),y)
     MALI_JIT_PRESSURE_LIMIT_BASE = 0
     MALI_USE_CSF = 1
     ccflags-y += -DCONFIG_MALI_PIXEL_GPU_SSCD
-ifeq ($(CONFIG_SOC_GS201),y)
-ifeq ($(CONFIG_MALI_HOST_CONTROLS_SC_RAILS),y)
-    ccflags-y += -DCONFIG_MALI_HOST_CONTROLS_SC_RAILS
-endif
+else
+    MALI_JIT_PRESSURE_LIMIT_BASE ?= 1
+    MALI_USE_CSF ?= 0
 endif
 ifeq ($(CONFIG_SOC_ZUMA),y)
     ccflags-y += -DCONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL
@@ -105,10 +104,6 @@ ifeq ($(CONFIG_SOC_ZUMA),y)
 # Flag to enable Fmax cap.
 # Comment it to enable all possible OPPs in DVFS table
     ccflags-y += -DCONFIG_MALI_PIXEL_GPU_HARD_FMAX
-endif
-else
-    MALI_JIT_PRESSURE_LIMIT_BASE ?= 1
-    MALI_USE_CSF ?= 0
 endif
 
 ccflags-y += -DCONFIG_GOOGLE_BCL
