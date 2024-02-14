@@ -1792,13 +1792,11 @@ static void global_init(struct kbase_device *const kbdev, u64 core_mask)
 
 	set_timeout_global(global_iface, kbase_csf_timeout_get(kbdev));
 
-#ifndef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
 	/* The GPU idle timer is always enabled for simplicity. Checks will be
 	 * done before scheduling the GPU idle worker to see if it is
 	 * appropriate for the current power policy.
 	 */
 	enable_gpu_idle_timer(kbdev);
-#endif
 
 	/* Unmask the interrupts */
 	kbase_csf_firmware_global_input(global_iface, GLB_ACK_IRQ_MASK, ack_irq_mask);
