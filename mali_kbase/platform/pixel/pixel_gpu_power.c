@@ -33,10 +33,6 @@
 #include <trace/events/power.h>
 #include <trace/hooks/systrace.h>
 
-#if IS_ENABLED(CONFIG_MALI_PM_RUNTIME_S2MPU_CONTROL) && IS_ENABLED(CONFIG_MALI_HOST_CONTROLS_SC_RAILS)
-#error "s2mpu device runtime PM control is not expected to be enabled with host-side shader rail control"
-#endif
-
 /*
  * GPU_PM_DOMAIN_NAMES - names for GPU power domains.
  *

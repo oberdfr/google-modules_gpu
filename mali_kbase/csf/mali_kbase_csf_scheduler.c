@@ -1892,9 +1892,6 @@ int kbase_csf_scheduler_queue_start(struct kbase_queue *queue)
 	bool const cs_enabled = queue->enabled;
 	int err = 0;
 	bool evicted = false;
-#ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
-	unsigned long flags;
-#endif
 
 	kbase_reset_gpu_assert_prevented(kbdev);
 	lockdep_assert_held(&queue->kctx->csf.lock);
@@ -6951,10 +6948,6 @@ int kbase_csf_scheduler_pm_suspend_no_lock(struct kbase_device *kbdev)
 			goto exit;
 		} else {
 			dev_info(kbdev->dev, "Scheduler PM suspend");
-#ifdef CONFIG_MALI_HOST_CONTROLS_SC_RAILS
-			turn_off_sc_power_rails(kbdev);
-			ack_gpu_idle_event(kbdev);
-#endif
 			scheduler_suspend(kbdev);
 			cancel_tick_work(scheduler);
 		}
