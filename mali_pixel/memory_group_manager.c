@@ -504,6 +504,7 @@ static u64 mgm_update_gpu_pte(
 	case MGM_SLC_GROUP_ID:
 		/* Map requests for SLC memory groups to SLC */
 		pte = slc_set_pbha(&data->slc_data, pte);
+		break;
 	default:
 		break;
 	}
