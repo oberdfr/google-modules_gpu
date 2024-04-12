@@ -553,7 +553,8 @@ static void segments_term(struct kbase_device *kbdev, struct sscd_segment* segme
 	kfree(segments[PM_EVENT_LOG].addr);
 	kfree(segments[KTRACE].addr);
 #if MALI_USE_CSF
-	pixel_context_snapshot_term(segments);
+	pixel_context_snapshot_term(&segments[CONTEXTS]);
+	kfree(segments[FW_CORE_DUMP].addr);
 #endif
 	/* Null out the pointers */
 	memset(segments, 0, sizeof(struct sscd_segment) * NUM_SEGMENTS);
