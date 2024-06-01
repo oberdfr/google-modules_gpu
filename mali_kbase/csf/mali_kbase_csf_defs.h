@@ -1242,15 +1242,25 @@ struct kbase_csf_scheduler {
 
 /* Total number of IPA_* counters registered with IPA, defined below */
 enum kbase_ipa_perf_counters {
-	ITER_ACTIVE_IDX = 0,
+	GPU_UTIL_IDX = 0,
 	MCU_ACTIVE_IDX,
 	// append new perf counters above
 	IPA_NUM_PERF_COUNTERS
 };
+
 /* Index of the MCU_ACTIVE counter within the CSHW counter block */
 #define IPA_MCU_ACTIVE_CNT_IDX (5)
-/* Index of the GPU_ITER_ACTIVE counter within the CSHW counter block */
-#define IPA_GPU_ITER_ACTIVE_CNT_IDX (6)
+
+#if IS_ENABLED(CONFIG_SOC_ZUMA)
+/*
+ * GPU_ACTIVE counter has HW errata on Turse(G715) GPU, use GPU_ITER_ACTIVE counter.
+ * Index of the GPU_ITER_ACTIVE counter within the CSHW counter block
+ */
+#define IPA_GPU_UTIL_CNT_IDX (6)
+#else
+/* Index of the GPU_ACTIVE counter within the CSHW counter block */
+#define IPA_GPU_UTIL_CNT_IDX (4)
+#endif
 
 /*
  * Maximum number of sessions that can be managed by the IPA Control component.
