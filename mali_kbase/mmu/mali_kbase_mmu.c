@@ -334,7 +334,6 @@ static void kbase_mmu_account_freed_pgd(struct kbase_device *kbdev, struct kbase
 	if (mmut->kctx) {
 		kbase_process_page_usage_dec(mmut->kctx, 1);
 		atomic_sub(1, &mmut->kctx->used_pages);
-		mmut->kctx->pgd_cnt--;
 	}
 
 	kbase_trace_gpu_mem_usage_dec(kbdev, mmut->kctx, 1);
@@ -1163,12 +1162,9 @@ page_fault_retry:
 	if (fault_rel_pfn < current_backed_size) {
 		struct kbase_mmu_hw_op_param op_param;
 
-		dev_warn_ratelimited(kbdev->dev,
-			"Page fault @VA 0x%llx in allocated region 0x%llx-0x%llx"
-			" (status %x) of kctx %d_%d (as %d)",
-			fault->addr, region->start_pfn << PAGE_SHIFT,
-			(region->start_pfn + current_backed_size) << PAGE_SHIFT,
-			fault_status, kctx->tgid, kctx->id, as_no);
+		dev_dbg(kbdev->dev,
+			"Page fault @ VA 0x%llx in allocated region 0x%llx-0x%llx of growable TMEM: Ignoring",
+			fault->addr, region->start_pfn, region->start_pfn + current_backed_size);
 
 		kbase_mmu_hw_clear_fault(kbdev, faulting_as, KBASE_MMU_FAULT_TYPE_PAGE);
 		/* [1] in case another page fault occurred while we were
@@ -1472,7 +1468,6 @@ static phys_addr_t kbase_mmu_alloc_pgd(struct kbase_device *kbdev, struct kbase_
 		new_page_count = atomic_add_return(1, &mmut->kctx->used_pages);
 		KBASE_TLSTREAM_AUX_PAGESALLOC(kbdev, mmut->kctx->id, (u64)new_page_count);
 		kbase_process_page_usage_inc(mmut->kctx, 1);
-		mmut->kctx->pgd_cnt++;
 	}
 
 	atomic_add(1, &kbdev->memdev.used_pages);
@@ -1805,77 +1800,6 @@ static void mmu_flush_invalidate_insert_pages(struct kbase_device *kbdev,
 		mmu_flush_invalidate(kbdev, mmut->kctx, as_nr, &op_param);
 }
 
-static void dump_region_info(struct kbase_device *kbdev, struct kbase_va_region *reg)
-{
-	if (!reg)
-		return;
-
-#if MALI_JIT_PRESSURE_LIMIT_BASE
-	dev_err(kbdev->dev,
-		"Region info: GPU VA %llx, nr_pages %zu, used_pages %zu,"
-		" commit_pages %zu, flags %lx, type %d",
-		reg->start_pfn << PAGE_SHIFT,
-		reg->nr_pages, reg->used_pages, reg->gpu_alloc->nents,
-		reg->flags, reg->gpu_alloc->type);
-#else
-	dev_err(kbdev->dev,
-		"Region info: GPU VA %llx, nr_pages %zu,"
-		" commit_pages %zu, flags %lx, type %d",
-		reg->start_pfn << PAGE_SHIFT,
-		reg->nr_pages, reg->gpu_alloc->nents,
-		reg->flags, reg->gpu_alloc->type);
-#endif
-}
-
-static void dump_zones_info(struct kbase_context *const kctx)
-{
-	enum kbase_memory_zone zone_idx;
-
-	if (!kctx)
-		return;
-
-	for (zone_idx = 0; zone_idx < CONTEXT_ZONE_MAX; zone_idx++) {
-		struct kbase_reg_zone *reg_zone = &kctx->reg_zone[zone_idx];
-
-		if (!reg_zone->base_pfn)
-			continue;
-		dev_warn(
-			kctx->kbdev->dev,
-			"%15s %u 0x%.16llx 0x%.16llx",
-			kbase_reg_zone_get_name(zone_idx), zone_idx, reg_zone->base_pfn,
-			reg_zone->va_size_pages);
-	}
-}
-
-static void dump_custom_va_zone_regions_info(struct kbase_context *const kctx, u64 insert_vpfn)
-{
-	struct kbase_reg_zone *reg_zone;
-
-	if (!kctx)
-		return;
-
-	reg_zone = &kctx->reg_zone[CUSTOM_VA_ZONE];
-
-	if (reg_zone->base_pfn &&
-	    (insert_vpfn >= reg_zone->base_pfn) &&
-	    (insert_vpfn < kbase_reg_zone_end_pfn(reg_zone))) {
-		struct rb_root *rbtree = &reg_zone->reg_rbtree;
-		struct rb_node *p;
-
-		dev_err(kctx->kbdev->dev, "Dumping CUSTOM_VA regions info");
-
-		for (p = rb_first(rbtree); p; p = rb_next(p)) {
-			struct kbase_va_region *reg = rb_entry(p, struct kbase_va_region, rblink);
-
-			/* Empty region - ignore */
-			if (reg->gpu_alloc == NULL)
-				continue;
-
-			dump_region_info(kctx->kbdev, reg);
-		}
-	}
-}
-
 /**
  * update_parent_pgds() - Updates the page table from bottom level towards
  *                        the top level to insert a new ATE
@@ -1891,7 +1815,6 @@ static void dump_custom_va_zone_regions_info(struct kbase_context *const kctx, u
  *                  the physical addresses of newly allocated PGDs from index
  *                  insert_level+1 to cur_level, and an existing PGD at index
  *                  insert_level.
- * @reg:            Pointer to the VA region that needs to be mapped.
  *
  * The newly allocated PGDs are linked from the bottom level up and inserted into the PGD
  * at insert_level which already exists in the MMU Page Tables. Migration status is also
@@ -1904,8 +1827,7 @@ static void dump_custom_va_zone_regions_info(struct kbase_context *const kctx, u
  */
 static int update_parent_pgds(struct kbase_device *kbdev, struct kbase_mmu_table *mmut,
 			      int cur_level, int insert_level, u64 insert_vpfn,
-			      phys_addr_t *pgds_to_insert,
-			      struct kbase_va_region *reg)
+			      phys_addr_t *pgds_to_insert)
 {
 	int pgd_index;
 	int err = 0;
@@ -1923,8 +1845,6 @@ static int update_parent_pgds(struct kbase_device *kbdev, struct kbase_mmu_table
 		u64 parent_vpfn = (insert_vpfn >> ((3 - parent_index) * 9)) & 0x1FF;
 		struct page *parent_page = pfn_to_page(PFN_DOWN(parent_pgd));
 		u64 *parent_page_va;
-		u32 mmut_kctx_tgid = mmut->kctx ? mmut->kctx->tgid : 0;
-		u32 mmut_kctx_id = mmut->kctx ? mmut->kctx->id : 0;
 
 		if (WARN_ON_ONCE(target_pgd == KBASE_INVALID_PHYSICAL_ADDRESS)) {
 			err = -EFAULT;
@@ -1942,32 +1862,8 @@ static int update_parent_pgds(struct kbase_device *kbdev, struct kbase_mmu_table
 		current_valid_entries = kbdev->mmu_mode->get_num_valid_entries(parent_page_va);
 
 		kbdev->mmu_mode->entry_set_pte(&pte, target_pgd);
-		if (WARN_ON_ONCE((parent_page_va[parent_vpfn] & 1UL) != 0)) {
-			dev_err(kbdev->dev,
-				"Valid PTE found at index %lld of"
-				" Level %d table page for VA %llx of kctx %d_%d",
-				parent_vpfn, parent_index, insert_vpfn << 12,
-				mmut_kctx_tgid, mmut_kctx_id);
-			dump_region_info(kbdev, reg);
-			dev_err(kbdev->dev, "cur_level %d insert_level %d current_valid_entries %u",
-				cur_level, insert_level, current_valid_entries);
-			dump_zones_info(mmut->kctx);
-			dump_custom_va_zone_regions_info(mmut->kctx, insert_vpfn);
-		}
 		parent_page_va[parent_vpfn] = kbdev->mgm_dev->ops.mgm_update_gpu_pte(
 			kbdev->mgm_dev, MGM_DEFAULT_PTE_GROUP, parent_index, pte);
-		if (unlikely((current_valid_entries + 1) > KBASE_MMU_PAGE_ENTRIES)) {
-			dev_err(kbdev->dev,
-				"Unexpected valid entry count after updating entry at index %lld of"
-				" Level %d table page for VA %llx of kctx %d_%d",
-				parent_vpfn, parent_index, insert_vpfn << 12,
-				mmut_kctx_tgid, mmut_kctx_id);
-			dump_region_info(kbdev, reg);
-			dev_err(kbdev->dev, "cur_level %d insert_level %d current_valid_entries %u",
-				cur_level, insert_level, current_valid_entries);
-			dump_zones_info(mmut->kctx);
-			dump_custom_va_zone_regions_info(mmut->kctx, insert_vpfn);
-		}
 		kbdev->mmu_mode->set_num_valid_entries(parent_page_va, current_valid_entries + 1);
 		kbase_kunmap(parent_page, parent_page_va);
 
@@ -2241,7 +2137,7 @@ repeat_page_table_walk:
 
 		if (newly_created_pgd) {
 			err = update_parent_pgds(kbdev, mmut, cur_level, insert_level, insert_vpfn,
-						 new_pgds, NULL);
+						 new_pgds);
 			if (err) {
 				dev_err(kbdev->dev, "%s: update_parent_pgds() failed (%d)",
 					__func__, err);
@@ -2536,11 +2432,7 @@ repeat_page_table_walk:
 					 * should be performed with
 					 * kbase_mmu_update_pages()
 					 */
-					if (WARN_ON_ONCE((*target & 1UL) != 0))
-						dev_err(kbdev->dev,
-							"valid ATE found at entry %u of"
-							" Level 3 table page for VA %llx",
-							ofs, insert_vpfn << 12);
+					WARN_ON_ONCE((*target & 1UL) != 0);
 
 					*target = kbase_mmu_create_ate(kbdev,
 								       as_tagged(page_address),
@@ -2558,21 +2450,6 @@ repeat_page_table_walk:
 			num_of_valid_entries += count;
 		}
 
-		if (unlikely(num_of_valid_entries > KBASE_MMU_PAGE_ENTRIES)) {
-			u32 mmut_kctx_tgid = mmut->kctx ? mmut->kctx->tgid : 0;
-			u32 mmut_kctx_id = mmut->kctx ? mmut->kctx->id : 0;
-			dev_err(kbdev->dev,
-				"Unexpected valid entry count after updating %u entries"
-				" at index %d of Level %d table page for VA %llx of kctx %d_%d",
-				count, vindex, cur_level, insert_vpfn << 12, mmut_kctx_tgid,
-				mmut_kctx_id);
-			dump_region_info(kbdev, reg);
-			dev_err(kbdev->dev,
-				"newly_created_pgd %d insert_level %d num_of_valid_entries %u",
-				newly_created_pgd, insert_level, num_of_valid_entries);
-			dump_zones_info(mmut->kctx);
-			dump_custom_va_zone_regions_info(mmut->kctx, insert_vpfn);
-		}
 		mmu_mode->set_num_valid_entries(pgd_page, num_of_valid_entries);
 
 		if (dirty_pgds)
@@ -2593,7 +2470,7 @@ repeat_page_table_walk:
 
 		if (newly_created_pgd) {
 			err = update_parent_pgds(kbdev, mmut, cur_level, insert_level, insert_vpfn,
-						 new_pgds, reg);
+						 new_pgds);
 			if (err) {
 				dev_err(kbdev->dev, "%s: update_parent_pgds() failed (%d)",
 					__func__, err);
@@ -3090,15 +2967,8 @@ static int kbase_mmu_teardown_pgd_pages(struct kbase_device *kbdev, struct kbase
 			if (mmu_mode->ate_is_valid(page[index], level))
 				break; /* keep the mapping */
 			else if (!mmu_mode->pte_is_valid(page[index], level)) {
-				u32 mmut_kctx_tgid = mmut->kctx ? mmut->kctx->tgid : 0;
-				u32 mmut_kctx_id = mmut->kctx ? mmut->kctx->id : 0;
-				dev_warn(kbdev->dev,
-					 "Invalid PTE found @ level %d for VA %llx"
-					 " (nr %zu, valid entries %u) of kctx %d_%d",
-					 level, vpfn << PAGE_SHIFT, nr,
-					 mmu_mode->get_num_valid_entries(page),
-					 mmut_kctx_tgid, mmut_kctx_id);
-				WARN_ON_ONCE(1);
+				dev_warn(kbdev->dev, "Invalid PTE found @ level %d for VA %llx",
+					 level, vpfn << PAGE_SHIFT);
 				/* nothing here, advance to the next PTE of the current level */
 				count = (1 << ((3 - level) * 9));
 				count -= (vpfn & (count - 1));
