@@ -230,6 +230,7 @@ static bool gpu_metrics_read_event(struct kbase_device *kbdev, struct kbase_cont
 
 		if (WARN_ON_ONCE(slot >= kbdev->csf.global_iface.group_num)) {
 			dev_err(kbdev->dev, "invalid CSG slot (%u)", slot);
+			pixel_gpu_uevent_kmd_error_send(kbdev, GPU_UEVENT_INFO_TRACE_BUF_INVALID_SLOT);
 			return false;
 		}
 
