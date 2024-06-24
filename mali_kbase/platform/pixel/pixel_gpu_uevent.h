@@ -57,6 +57,7 @@ static inline const char *gpu_uevent_type_str(enum gpu_uevent_type type) {
     GPU_UEVENT_INFO(PMODE_ENTRY_FAILURE)        \
     GPU_UEVENT_INFO(GPU_PAGE_FAULT)             \
     GPU_UEVENT_INFO(MMU_AS_ACTIVE_STUCK)        \
+    GPU_UEVENT_INFO(TRACE_BUF_INVALID_SLOT)     \
     GPU_UEVENT_INFO(MAX)
 
 #define GPU_UEVENT_INFO(info) GPU_UEVENT_INFO_##info,
