@@ -293,9 +293,11 @@ static int gpu_pm_power_on_top_nolock(struct kbase_device *kbdev)
 #endif
 
 #if !IS_ENABLED(CONFIG_SOC_GS101) && defined(CONFIG_MALI_PIXEL_GPU_SECURE_RENDERING)
+	ATRACE_BEGIN("SMC_PROTECTION_ENABLE");
 	if (exynos_smc(SMC_PROTECTION_SET, 0, PROT_G3D, SMC_PROTECTION_ENABLE) != 0) {
 		dev_err(kbdev->dev, "Couldn't enable protected mode after GPU power-on");
 	}
+	ATRACE_END();
 #endif
 
 	pc->pm.state = GPU_POWER_LEVEL_STACKS;
