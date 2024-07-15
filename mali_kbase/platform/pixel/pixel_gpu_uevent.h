@@ -77,8 +77,16 @@ struct gpu_uevent {
     enum gpu_uevent_info info;
 };
 
+struct gpu_uevent_ctx {
+    unsigned long last_uevent_ts[GPU_UEVENT_TYPE_MAX];
+    spinlock_t lock;
+};
+
 void pixel_gpu_uevent_send(struct kbase_device *kbdev, const struct gpu_uevent *evt);
 
 void pixel_gpu_uevent_kmd_error_send(struct kbase_device *kbdev, const enum gpu_uevent_info info);
+
+void gpu_uevent_term(struct kbase_device *kbdev);
+int gpu_uevent_init(struct kbase_device *kbdev);
 
 #endif /* _PIXEL_GPU_UEVENT_H_ */
