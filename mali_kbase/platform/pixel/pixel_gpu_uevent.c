@@ -5,18 +5,10 @@
  * Author: Varad Gautam <varadgautam@google.com>
  */
 
-#include <linux/spinlock.h>
 #include "pixel_gpu_uevent.h"
+#include "mali_kbase_config_platform.h"
 
-#define GPU_UEVENT_TIMEOUT_MS (1200000U) /* 20min */
-
-static struct gpu_uevent_ctx {
-    unsigned long last_uevent_ts[GPU_UEVENT_TYPE_MAX];
-    spinlock_t lock;
-} gpu_uevent_ctx = {
-    .last_uevent_ts = {0},
-    .lock = __SPIN_LOCK_UNLOCKED(gpu_uevent_ctx.lock)
-};
+#define GPU_UEVENT_RATELIMIT_MS (1200000U) /* 20min */
 
 static bool gpu_uevent_check_valid(const struct gpu_uevent *evt)
 {
@@ -65,6 +57,8 @@ static bool gpu_uevent_check_valid(const struct gpu_uevent *evt)
 
 void pixel_gpu_uevent_send(struct kbase_device *kbdev, const struct gpu_uevent *evt)
 {
+    struct pixel_context *pc = kbdev->platform_context;
+    struct gpu_uevent_ctx *gpu_uevent_ctx = &pc->gpu_uevent_ctx;
     enum uevent_env_idx {
         ENV_IDX_TYPE,
         ENV_IDX_INFO,
@@ -87,16 +81,16 @@ void pixel_gpu_uevent_send(struct kbase_device *kbdev, const struct gpu_uevent *
     env[ENV_IDX_INFO] = (char *) gpu_uevent_info_str(evt->info);
     env[ENV_IDX_NULL] = NULL;
 
-    spin_lock_irqsave(&gpu_uevent_ctx.lock, flags);
+    spin_lock_irqsave(&gpu_uevent_ctx->lock, flags);
 
-    if (time_after(current_ts, gpu_uevent_ctx.last_uevent_ts[evt->type]
-            + msecs_to_jiffies(GPU_UEVENT_TIMEOUT_MS))) {
-        gpu_uevent_ctx.last_uevent_ts[evt->type] = current_ts;
+    if (time_after(current_ts, gpu_uevent_ctx->last_uevent_ts[evt->type]
+            + msecs_to_jiffies(GPU_UEVENT_RATELIMIT_MS))) {
+        gpu_uevent_ctx->last_uevent_ts[evt->type] = current_ts;
     } else {
         suppress_uevent = true;
     }
 
-    spin_unlock_irqrestore(&gpu_uevent_ctx.lock, flags);
+    spin_unlock_irqrestore(&gpu_uevent_ctx->lock, flags);
 
     if (!suppress_uevent)
         kobject_uevent_env(&kbdev->dev->kobj, KOBJ_CHANGE, env);
@@ -110,4 +104,19 @@ void pixel_gpu_uevent_kmd_error_send(struct kbase_device *kbdev, const enum gpu_
     };
 
     pixel_gpu_uevent_send(kbdev, &evt);
+}
+
+void gpu_uevent_term(struct kbase_device *kbdev)
+{
+}
+
+int gpu_uevent_init(struct kbase_device *kbdev)
+{
+    struct pixel_context *pc = kbdev->platform_context;
+    struct gpu_uevent_ctx *gpu_uevent_ctx = &pc->gpu_uevent_ctx;
+
+    memset(&pc->gpu_uevent_ctx, 0, sizeof(struct gpu_uevent_ctx));
+    spin_lock_init(&gpu_uevent_ctx->lock);
+
+    return 0;
 }
