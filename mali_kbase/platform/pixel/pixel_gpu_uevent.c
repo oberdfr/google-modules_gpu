@@ -36,6 +36,7 @@ static bool gpu_uevent_check_valid(const struct gpu_uevent *evt)
         case GPU_UEVENT_INFO_PMODE_ENTRY_FAILURE:
         case GPU_UEVENT_INFO_GPU_PAGE_FAULT:
         case GPU_UEVENT_INFO_MMU_AS_ACTIVE_STUCK:
+        case GPU_UEVENT_INFO_TRACE_BUF_INVALID_SLOT:
             return true;
         default:
             return false;
