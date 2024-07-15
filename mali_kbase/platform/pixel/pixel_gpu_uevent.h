@@ -9,6 +9,7 @@
 #define _PIXEL_GPU_UEVENT_H_
 
 #include <mali_kbase.h>
+#include <linux/kfifo.h>
 
 #define GPU_UEVENT_TYPE_LIST                    \
     GPU_UEVENT_TYPE(NONE)                       \
@@ -79,7 +80,9 @@ struct gpu_uevent {
 
 struct gpu_uevent_ctx {
     unsigned long last_uevent_ts[GPU_UEVENT_TYPE_MAX];
+    DECLARE_KFIFO_PTR(evts_fifo, struct gpu_uevent);
     spinlock_t lock;
+    struct work_struct gpu_uevent_work;
 };
 
 void pixel_gpu_uevent_send(struct kbase_device *kbdev, const struct gpu_uevent *evt);
