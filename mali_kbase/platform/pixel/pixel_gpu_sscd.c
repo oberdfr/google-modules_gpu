@@ -316,7 +316,9 @@ static int get_contexts(struct kbase_device *kbdev,
 		entry->gpu_slot = csg_nr;
 		entry->platform_state = atomic_read(&slot->state);
 		entry->priority = slot->priority;
+		/* b/351116409 - TODO:gvamsi there is no trigger_jiffies in R50P0
 		entry->time_in_state = (jiffies - slot->trigger_jiffies) / HZ;
+		 */
 		if (slot->resident_group) {
 			entry->id = slot->resident_group->handle;
 			entry->pid = slot->resident_group->kctx->pid;
