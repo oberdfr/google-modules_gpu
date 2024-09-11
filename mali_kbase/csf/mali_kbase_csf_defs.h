@@ -1743,6 +1743,7 @@ struct kbase_csf_user_reg {
  * @compute_progress_timeout_cc: Value of GPU cycle count register when progress
  *                               timer timeout is reported for the compute iterator.
  * @num_doorbells: Number of doorbells supported by the GPU.
+ * @glb_fatal_ts: Pixel: GLB_FATAL fault timestamp for SSCD.
  */
 struct kbase_csf_device {
 	struct kbase_mmu_table mcu_mmu;
@@ -1809,6 +1810,8 @@ struct kbase_csf_device {
 	struct kbase_csf_fw_io fw_io;
 	u64 compute_progress_timeout_cc;
 	u32 num_doorbells;
+	/* pixel: GLB_FATAL timestamp */
+	ktime_t glb_fatal_ts;
 };
 
 /**

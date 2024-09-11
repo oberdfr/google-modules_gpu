@@ -3175,8 +3175,9 @@ static void handle_glb_fatal_event(struct kbase_device *kbdev,
 	if (fatal_status == GLB_FATAL_STATUS_VALUE_OK)
 		dev_err(kbdev->dev, "GLB_FATAL_STATUS(OK) must be set with proper reason");
 	else {
+		kbdev->csf.glb_fatal_ts = ktime_get_raw();
 		dev_warn(kbdev->dev, "[%lluns] GLB_FATAL_STATUS: %s",
-			ktime_get_raw_ns(), error_string);
+			kbdev->csf.glb_fatal_ts, error_string);
 
 		queue_work(system_wq, &kbdev->csf.glb_fatal_work);
 	}
