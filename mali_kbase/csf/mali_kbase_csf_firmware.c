@@ -1831,7 +1831,8 @@ static void global_init(struct kbase_device *const kbdev, u64 core_mask)
 		GLB_ACK_IRQ_MASK_PROTM_EXIT_MASK | GLB_ACK_IRQ_MASK_FIRMWARE_CONFIG_UPDATE_MASK |
 		GLB_ACK_IRQ_MASK_CFG_PWROFF_TIMER_MASK | GLB_ACK_IRQ_MASK_IDLE_EVENT_MASK |
 		GLB_REQ_DEBUG_CSF_REQ_MASK | GLB_ACK_IRQ_MASK_IDLE_ENABLE_MASK |
-		GLB_ACK_IRQ_MASK_CFG_EVICTION_TIMER_MASK | GLB_ACK_IRQ_MASK_ITER_TRACE_ENABLE_MASK;
+		GLB_ACK_IRQ_MASK_CFG_EVICTION_TIMER_MASK | GLB_ACK_IRQ_MASK_ITER_TRACE_ENABLE_MASK |
+		GLB_ACK_FATAL_MASK;
 	bool const fw_soi_allowed = kbase_pm_fw_sleep_on_idle_allowed(kbdev);
 	struct kbase_csf_fw_io *fw_io = &kbdev->csf.fw_io;
 	unsigned long flags, fw_io_flags;
