@@ -3356,6 +3356,7 @@ static void handle_glb_fatal(struct kbase_device *const kbdev)
 {
 	int as;
 
+	pixel_gpu_uevent_kmd_error_send(kbdev, GPU_UEVENT_INFO_FW_ERROR);
 	kbasep_platform_event_core_dump(kbdev, "Internal firmware error");
 
 	for (as = 0; as < kbdev->nr_hw_address_spaces; as++) {
