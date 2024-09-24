@@ -2095,6 +2095,12 @@ struct kbase_context {
 #endif
 
 	char comm[TASK_COMM_LEN];
+
+#if MALI_USE_CSF
+	/* pixel: protm timestamps for this kctx. */
+	ktime_t protm_enter_ts;
+	ktime_t protm_exit_ts;
+#endif
 };
 
 #ifdef CONFIG_MALI_CINSTR_GWT

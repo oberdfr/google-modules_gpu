@@ -2495,6 +2495,7 @@ static void remove_group_from_runnable(struct kbase_csf_scheduler *const schedul
 
 		KBASE_KTRACE_ADD_CSF_GRP(kctx->kbdev, SCHEDULER_PROTM_EXIT,
 					 scheduler->active_protm_grp, 0u);
+		kctx->protm_exit_ts = ktime_get_raw();
 		scheduler->active_protm_grp = NULL;
 	}
 	spin_unlock_irqrestore(&scheduler->interrupt_lock, flags);
@@ -4078,6 +4079,13 @@ void kbase_csf_scheduler_evict_ctx_slots(struct kbase_device *kbdev, struct kbas
 	dev_info(kbdev->dev, "Evicting context %d_%d slots: 0x%*pb\n", kctx->tgid, kctx->id,
 		 num_groups, slot_mask);
 
+	if (kctx->protm_enter_ts) {
+		dev_info(kbdev->dev, "Context %d_%d protm_enter_ts=%lluns protm_exit_ts=%lluns\n",
+			kctx->tgid, kctx->id,
+			ktime_to_ns(kctx->protm_enter_ts),
+			ktime_to_ns(kctx->protm_exit_ts));
+	}
+
 	/* Fatal errors may have been the cause of the GPU reset
 	 * taking place, in which case we want to make sure that
 	 * we wake up the fatal event queue to notify userspace
@@ -4312,6 +4320,7 @@ static void scheduler_group_check_protm_enter(struct kbase_device *const kbdev,
 				}
 
 				scheduler->protm_enter_time = ktime_get_raw();
+				input_grp->kctx->protm_enter_ts = scheduler->protm_enter_time;
 
 				return;
 			}
@@ -5967,9 +5976,14 @@ static void scheduler_inner_reset(struct kbase_device *kbdev)
 
 	spin_lock_irqsave(&scheduler->interrupt_lock, flags);
 	bitmap_fill(scheduler->csgs_events_enable_mask, MAX_SUPPORTED_CSGS);
-	if (scheduler->active_protm_grp)
+	if (scheduler->active_protm_grp) {
 		KBASE_KTRACE_ADD_CSF_GRP(kbdev, SCHEDULER_PROTM_EXIT, scheduler->active_protm_grp,
 					 0u);
+		if (scheduler->active_protm_grp->kctx) {
+			scheduler->active_protm_grp->kctx->protm_exit_ts = ktime_get_raw();
+		}
+	}
+
 	scheduler->active_protm_grp = NULL;
 	memset(kbdev->csf.scheduler.csg_slots, 0, num_groups * sizeof(struct kbase_csf_csg_slot));
 	bitmap_zero(kbdev->csf.scheduler.csg_inuse_bitmap, num_groups);

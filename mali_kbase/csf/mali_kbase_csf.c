@@ -3041,6 +3041,9 @@ static inline int process_protm_exit(struct kbase_device *kbdev, u32 glb_ack)
 	if (likely(scheduler->active_protm_grp)) {
 		KBASE_KTRACE_ADD_CSF_GRP(kbdev, SCHEDULER_PROTM_EXIT, scheduler->active_protm_grp,
 					 0u);
+		if (likely(scheduler->active_protm_grp->kctx)) {
+			scheduler->active_protm_grp->kctx->protm_exit_ts = ktime_get_raw();
+		}
 		scheduler->active_protm_grp = NULL;
 	} else {
 		dev_warn(kbdev->dev, "PROTM_EXIT interrupt after no pmode group");
@@ -3172,7 +3175,9 @@ static void handle_glb_fatal_event(struct kbase_device *kbdev,
 	if (fatal_status == GLB_FATAL_STATUS_VALUE_OK)
 		dev_err(kbdev->dev, "GLB_FATAL_STATUS(OK) must be set with proper reason");
 	else {
-		dev_warn(kbdev->dev, "GLB_FATAL_STATUS: %s", error_string);
+		dev_warn(kbdev->dev, "[%lluns] GLB_FATAL_STATUS: %s",
+			ktime_get_raw_ns(), error_string);
+
 		queue_work(system_wq, &kbdev->csf.glb_fatal_work);
 	}
 }
